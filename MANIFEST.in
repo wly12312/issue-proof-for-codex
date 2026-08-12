@@ -1,0 +1,24 @@
+include README.md LICENSE CONTRIBUTING.md SECURITY.md pyproject.toml .gitignore .gitattributes
+recursive-include src/issue_proof *.py
+recursive-include tests *.py *.md
+recursive-include tests/fixtures *
+recursive-include examples *.py *.md *.json *.jsonl
+recursive-include schemas *.json
+recursive-include skills *
+recursive-include docs *.md
+recursive-include .github *.yml
+recursive-include .codex-plugin *.json
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.egg-info/*
+global-exclude .coverage
+global-exclude .coverage.*
+global-exclude *.log
+global-exclude .env
+global-exclude .env.*
+prune .issue-proof
+prune build
+prune dist
+prune src/oss_issue_proof.egg-info
+exclude src/oss_issue_proof.egg-info/*

@@ -1,0 +1,81 @@
+name: Codex receipt artifact (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      trace_artifact:
+        description: "Name of an already uploaded JSONL trace artifact"
+        required: true
+        type: string
+      run_id:
+        description: "Workflow run ID that owns the uploaded artifact"
+        required: true
+        type: string
+      report_artifact:
+        description: "Optional name of an uploaded baseline report artifact"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  receipt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install .
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.trace_artifact }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: .issue-proof/input-trace
+      - name: Locate trace
+        id: trace
+        shell: bash
+        run: |
+          trace="$(find .issue-proof/input-trace -maxdepth 2 -type f -name '*.jsonl' -print -quit)"
+          test -n "$trace"
+          echo "path=$trace" >> "$GITHUB_OUTPUT"
+      - name: Download optional baseline
+        if: ${{ inputs.report_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.report_artifact }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: .issue-proof/input-report
+      - name: Locate optional baseline
+        if: ${{ inputs.report_artifact != '' }}
+        id: baseline
+        shell: bash
+        run: |
+          report="$(find .issue-proof/input-report -maxdepth 2 -type f -name 'report.json' -print -quit)"
+          test -n "$report"
+          echo "path=$report" >> "$GITHUB_OUTPUT"
+      - name: Generate draft receipt with baseline
+        if: ${{ inputs.report_artifact != '' }}
+        run: >-
+          issue-proof codex receipt
+          --trace "${{ steps.trace.outputs.path }}"
+          --baseline "${{ steps.baseline.outputs.path }}"
+          --output .issue-proof/receipt.json
+      - name: Generate draft receipt without baseline
+        if: ${{ inputs.report_artifact == '' }}
+        run: >-
+          issue-proof codex receipt
+          --trace "${{ steps.trace.outputs.path }}"
+          --output .issue-proof/receipt.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: issue-proof-codex-receipt
+          path: .issue-proof/receipt.*
+          if-no-files-found: error

@@ -1,0 +1,22 @@
+name: Adoption report
+description: Share an authorized, privacy-preserving trial result
+title: "adoption: "
+labels: [adoption]
+body:
+  - type: markdown
+    attributes:
+      value: Do not upload Issue bodies, credentials, private repository URLs, or raw evidence.
+  - type: input
+    id: repository_count
+    attributes:
+      label: Aggregate repository count
+      description: Number of repositories in the trial, without names unless public and authorized.
+    validations:
+      required: true
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Aggregate metrics
+      description: Successful reproductions, inconclusive rate, time-to-triage, and limitations.
+    validations:
+      required: true

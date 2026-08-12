@@ -1,0 +1,677 @@
+"""Versioned CodexMaintenanceReceipt construction, validation, and Markdown rendering."""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from .. import __version__
+from ..errors import DependencyError, SchemaValidationError
+from ..models import Report
+from ..redact import redact_text
+from .agents import AgentScan
+from .claims import Claim, verify_claims
+from .events import TraceSummary
+from .git_provenance import GitProvenance, collect_git_provenance
+
+RECEIPT_SCHEMA_VERSION = "1.0.0"
+RECEIPT_TYPE = "CodexMaintenanceReceipt"
+RECEIPT_VERDICTS = {"verified", "partially-verified", "unverified", "refuted", "inconclusive"}
+HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _safe_value(value: Any, limit: int = 2_048) -> str | None:
+    if value is None:
+        return None
+    text = redact_text(str(value)).text
+    text = "".join(char if char in "\t\n\r" or ord(char) >= 32 else "�" for char in text)
+    if len(text) > limit:
+        return text[:limit] + "\n[value truncated]"
+    return text
+
+
+def _safe_path_value(value: Any, limit: int = 1_024) -> str | None:
+    text = _safe_value(value, limit)
+    if not text:
+        return text
+    if _ABSOLUTE_WINDOWS.match(text) or text.startswith("/"):
+        return "<absolute-path>"
+    return text.replace("\\", "/")
+
+
+def _public_execution(execution: dict[str, Any] | None, evidence_id: str) -> dict[str, Any] | None:
+    if not isinstance(execution, dict):
+        return None
+    argv = execution.get("argv", [])
+    if not isinstance(argv, list):
+        argv = []
+
+    def public_stream(value: Any, label: str) -> dict[str, Any]:
+        stream = value if isinstance(value, dict) else {}
+        summary = _safe_value(stream.get("summary"), 16_384) or ""
+        return {
+            "summary": summary,
+            "sha256": stream.get("sha256") if isinstance(stream.get("sha256"), str) else None,
+            "captured_bytes": stream.get("captured_bytes")
+            if isinstance(stream.get("captured_bytes"), int)
+            else len(summary.encode("utf-8")),
+            "truncated": bool(stream.get("truncated", False)),
+            "redacted": bool(stream.get("redacted", False)),
+            "source": label,
+        }
+
+    return {
+        "id": evidence_id,
+        "argv": [
+            (
+                _safe_path_value(item, 1_024)
+                if _ABSOLUTE_WINDOWS.match(item) or item.startswith("/")
+                else _safe_value(item, 1_024)
+            )
+            or ""
+            for item in argv
+            if isinstance(item, str)
+        ],
+        "display_command": _safe_value(execution.get("display_command"), 4_096),
+        "cwd": _safe_path_value(execution.get("cwd"), 1_024),
+        "exit_code": execution.get("exit_code")
+        if isinstance(execution.get("exit_code"), int)
+        else None,
+        "duration_seconds": execution.get("duration_seconds")
+        if isinstance(execution.get("duration_seconds"), (int, float))
+        else None,
+        "timed_out": bool(execution.get("timed_out", False)),
+        "stdout": public_stream(execution.get("stdout"), "stdout"),
+        "stderr": public_stream(execution.get("stderr"), "stderr"),
+    }
+
+
+def _report_data(value: Report | dict[str, Any] | None) -> dict[str, Any] | None:
+    if isinstance(value, Report):
+        return value.as_dict()
+    return value if isinstance(value, dict) else None
+
+
+def _baseline_record(value: Report | dict[str, Any] | None) -> dict[str, Any] | None:
+    data = _report_data(value)
+    if data is None:
+        return None
+    reproduction = data.get("reproduction") if isinstance(data.get("reproduction"), dict) else {}
+    execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+    return {
+        "evidence_id": "baseline-reproduction",
+        "report_run_id": _safe_value(data.get("run_id"), 256),
+        "outcome": reproduction.get("outcome", "inconclusive"),
+        "reason": _safe_value(reproduction.get("reason"), 2_048),
+        "stability": _safe_value(reproduction.get("stability"), 128),
+        "execution": _public_execution(execution, "baseline-command"),
+    }
+
+
+def _verification_record(
+    value: Report | dict[str, Any] | None,
+    baseline: dict[str, Any] | None,
+    command: dict[str, Any] | None,
+) -> dict[str, Any]:
+    data = _report_data(value)
+    verification = (
+        data.get("verification") if data and isinstance(data.get("verification"), dict) else {}
+    )
+    outcome = verification.get("outcome", "not-applicable")
+    result: dict[str, Any] = {
+        "evidence_id": "verification",
+        "outcome": outcome,
+        "reason": _safe_value(verification.get("reason"), 2_048),
+        "baseline_evidence_id": "baseline-reproduction" if baseline else None,
+        "verification_command_evidence_id": "verification-command" if command else None,
+        "same_argv": None,
+        "baseline_required": True,
+    }
+    if command:
+        result["command"] = command
+    if baseline and command:
+        result["same_argv"] = baseline.get("execution", {}).get("argv") == command.get("argv")
+    if not data:
+        result.update(
+            {
+                "outcome": "not-applicable",
+                "reason": "No independent verification report was supplied.",
+                "baseline_required": True,
+            }
+        )
+    return result
+
+
+def _issue_record(issue: dict[str, Any] | None) -> dict[str, Any]:
+    issue = issue if isinstance(issue, dict) else {}
+    url = _safe_value(issue.get("url"), 2_048)
+    number = issue.get("number")
+    if number is None and url:
+        match = re.search(r"/issues/(\d+)(?:$|[?#])", url)
+        number = int(match.group(1)) if match else None
+    source = issue.get("source") or ("github-url" if url else "not-provided")
+    return {
+        "source": _safe_value(source, 64),
+        "url": url,
+        "number": number if isinstance(number, int) else None,
+        "location": _safe_path_value(issue.get("location"), 2_048),
+        "title": _safe_value(issue.get("title"), 512),
+        "body_summary_hash": _safe_value(issue.get("body_summary_hash"), 128),
+    }
+
+
+def _repository_record(provenance: GitProvenance | None) -> dict[str, Any]:
+    if provenance is None:
+        return {
+            "root": ".",
+            "remote_url": None,
+            "head_sha": None,
+            "branch": None,
+            "dirty": None,
+            "worktree_path": ".",
+            "common_git_dir_sha256": None,
+            "start": None,
+            "end": None,
+            "changed_files": [],
+        }
+    end = provenance.end.as_dict()
+    return {
+        "root": provenance.repository_root,
+        "remote_url": provenance.remote_url,
+        "head_sha": provenance.end.head_sha,
+        "branch": provenance.end.branch,
+        "dirty": provenance.end.dirty,
+        "worktree_path": provenance.worktree_path,
+        "common_git_dir_sha256": provenance.common_git_dir_sha256,
+        "start": provenance.start.as_dict(),
+        "end": end,
+        "changed_files": provenance.end.changed_files,
+    }
+
+
+def _evidence_records(
+    trace: TraceSummary,
+    baseline: dict[str, Any] | None,
+    verification: dict[str, Any],
+    provenance: GitProvenance | None,
+    agents: AgentScan | None,
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = [
+        {
+            "id": "trace",
+            "type": "trace",
+            "summary": f"Explicit JSONL trace SHA-256 {trace.source_trace_sha256}",
+        }
+    ]
+    for event in trace.events:
+        evidence.append(
+            {
+                "id": event.event_id,
+                "type": event.kind,
+                "line": event.line_number,
+                "summary": event.summary,
+            }
+        )
+    for command in trace.command_evidence:
+        evidence.append(
+            {
+                "id": command["id"],
+                "type": "command",
+                "summary": command.get("display_command") or "command evidence",
+                "exit_code": command.get("exit_code"),
+            }
+        )
+    if baseline:
+        evidence.append(
+            {
+                "id": "baseline-reproduction",
+                "type": "baseline",
+                "summary": baseline.get("reason") or baseline.get("outcome"),
+            }
+        )
+    if verification.get("outcome") != "not-applicable":
+        evidence.append(
+            {
+                "id": "verification",
+                "type": "verification",
+                "summary": verification.get("reason") or verification.get("outcome"),
+            }
+        )
+    if provenance:
+        evidence.extend(
+            [
+                {
+                    "id": "git-start",
+                    "type": "git-state",
+                    "summary": f"start HEAD {provenance.start.head_sha or '<none>'}",
+                },
+                {
+                    "id": "git-end",
+                    "type": "git-state",
+                    "summary": f"end HEAD {provenance.end.head_sha or '<none>'}",
+                },
+            ]
+        )
+    if trace.file_changes:
+        evidence.append(
+            {
+                "id": "trace-files",
+                "type": "file-changes",
+                "summary": f"{len(trace.file_changes)} trace file change projection(s)",
+            }
+        )
+    if agents:
+        for index, item in enumerate(agents.files, start=1):
+            evidence.append(
+                {
+                    "id": f"agents-{index:04d}",
+                    "type": "agents-provenance",
+                    "summary": item.get("relative_path", "AGENTS file"),
+                }
+            )
+    return evidence
+
+
+def _verdict(
+    verification: dict[str, Any],
+    baseline: dict[str, Any] | None,
+    claims: list[Claim],
+    trace: TraceSummary,
+) -> str:
+    if verification.get("outcome") == "not-fixed":
+        return "refuted"
+    if any(claim.status == "refuted" for claim in claims):
+        return "refuted"
+    if trace.parse_errors:
+        return "inconclusive"
+    if verification.get("outcome") == "verified":
+        if any(claim.status == "unverified" for claim in claims):
+            return "partially-verified"
+        return "verified"
+    if baseline and baseline.get("outcome") == "reproduced":
+        return "unverified"
+    if claims and any(claim.status == "supported" for claim in claims):
+        return "partially-verified"
+    return "inconclusive" if trace.valid_events == 0 else "unverified"
+
+
+@dataclass
+class CodexMaintenanceReceipt:
+    """Portable, redacted evidence object for one Codex-assisted maintenance run."""
+
+    receipt_schema_version: str
+    receipt_type: str
+    tool_version: str
+    generated_at: str
+    codex: dict[str, Any]
+    repository: dict[str, Any]
+    issue: dict[str, Any]
+    baseline: dict[str, Any] | None
+    commands: list[dict[str, Any]]
+    verification: dict[str, Any]
+    agents: dict[str, Any]
+    trace: dict[str, Any]
+    evidence: list[dict[str, Any]]
+    claims: list[dict[str, Any]]
+    verdict: str
+    warnings: list[str] = None  # type: ignore[assignment]
+    redactions: list[str] = None  # type: ignore[assignment]
+    unknown_events: list[str] = None  # type: ignore[assignment]
+    parse_errors: list[dict[str, Any]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        self.warnings = list(self.warnings or [])
+        self.redactions = list(self.redactions or [])
+        self.unknown_events = list(self.unknown_events or [])
+        self.parse_errors = list(self.parse_errors or [])
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "receipt_schema_version": self.receipt_schema_version,
+            "receipt_type": self.receipt_type,
+            "tool_version": self.tool_version,
+            "generated_at": self.generated_at,
+            "codex": self.codex,
+            "repository": self.repository,
+            "issue": self.issue,
+            "baseline": self.baseline,
+            "commands": self.commands,
+            "verification": self.verification,
+            "agents": self.agents,
+            "trace": self.trace,
+            "evidence": self.evidence,
+            "claims": self.claims,
+            "verdict": self.verdict,
+            "warnings": self.warnings,
+            "redactions": self.redactions,
+            "unknown_events": self.unknown_events,
+            "parse_errors": self.parse_errors,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.as_dict(), ensure_ascii=False, indent=2) + "\n"
+
+
+def build_receipt(
+    trace: TraceSummary,
+    *,
+    repo_root: Path | None = None,
+    issue: dict[str, Any] | None = None,
+    baseline: Report | dict[str, Any] | None = None,
+    verification: Report | dict[str, Any] | None = None,
+    verification_command: dict[str, Any] | None = None,
+    agents: AgentScan | None = None,
+    claim_inputs: Iterable[Claim | dict[str, Any]] = (),
+    include_heuristics: bool = False,
+    generated_at: str | None = None,
+) -> CodexMaintenanceReceipt:
+    claim_items = list(claim_inputs)
+    provenance: GitProvenance | None = None
+    provenance_warnings: list[str] = []
+    if repo_root is not None:
+        try:
+            provenance = collect_git_provenance(repo_root)
+            provenance_warnings.extend(provenance.warnings)
+        except (OSError, ValueError) as exc:
+            provenance_warnings.append(f"Git provenance unavailable: {exc.__class__.__name__}")
+
+    baseline_record = _baseline_record(baseline)
+    verification_command = (
+        _public_execution(verification_command, "verification-command")
+        if verification_command
+        else None
+    )
+    if verification_command:
+        verification_command["id"] = "verification-command"
+    verification_record = _verification_record(verification, baseline_record, verification_command)
+    commands = list(trace.command_evidence)
+    if verification_command:
+        commands.append(verification_command)
+    claim_evidence = {
+        "commands": commands,
+        "baseline": baseline_record,
+        "verification": verification_record,
+        "git": provenance.as_dict() if provenance else {},
+        "trace_files": trace.file_changes,
+        "final_messages": trace.final_messages,
+        "evidence_ids": [
+            item["id"]
+            for item in _evidence_records(
+                trace, baseline_record, verification_record, provenance, agents
+            )
+        ],
+    }
+    claims, claim_warnings = verify_claims(
+        claim_items,
+        claim_evidence,
+        include_heuristics=include_heuristics,
+    )
+    if not claim_items and baseline_record:
+        default_claim = Claim(
+            id="default-bug-reproduced",
+            type="bug-reproduced",
+            evidence_ids=["baseline-reproduction"],
+        )
+        claims, default_warnings = verify_claims([default_claim], claim_evidence)
+        claim_warnings.extend(default_warnings)
+    if not claim_items and verification_record.get("outcome") != "not-applicable":
+        default_claim = Claim(
+            id="default-fix-verified",
+            type="fix-verified",
+            evidence_ids=["verification"],
+        )
+        extra_claims, default_warnings = verify_claims([default_claim], claim_evidence)
+        claims.extend(extra_claims)
+        claim_warnings.extend(default_warnings)
+    warnings = list(dict.fromkeys(trace.warnings + provenance_warnings + claim_warnings))
+    if agents:
+        warnings.extend(agents.warnings)
+    warnings = list(dict.fromkeys(warnings))
+    redactions = list(dict.fromkeys(trace.redactions))
+    if not trace.include_messages:
+        warnings.append("raw conversation and assistant reasoning were not persisted")
+    if trace.adapter_status.startswith("experimental"):
+        warnings.append(
+            "Codex event adapter is experimental-compatible; verify public fields before "
+            "relying on them"
+        )
+    receipt = CodexMaintenanceReceipt(
+        receipt_schema_version=RECEIPT_SCHEMA_VERSION,
+        receipt_type=RECEIPT_TYPE,
+        tool_version=__version__,
+        generated_at=generated_at or _utc_now(),
+        codex={
+            "cli_version": trace.codex_cli_version,
+            "app_version": trace.codex_app_version,
+            "task_id": trace.task_id,
+            "session_id": trace.session_id,
+            "source_trace_sha256": trace.source_trace_sha256,
+            "adapter": trace.adapter_status,
+            "raw_trace_persisted": False,
+            "messages_included": trace.include_messages,
+        },
+        repository=_repository_record(provenance),
+        issue=_issue_record(issue),
+        baseline=baseline_record,
+        commands=commands,
+        verification=verification_record,
+        agents=agents.as_dict()
+        if agents
+        else {
+            "scope_model": "not-collected",
+            "files": [],
+            "warnings": [],
+            "include_content": False,
+        },
+        trace={
+            "name": trace.trace_name,
+            "sha256": trace.source_trace_sha256,
+            "lines_seen": trace.lines_seen,
+            "valid_events": trace.valid_events,
+            "unknown_event_count": trace.unknown_events,
+            "include_messages": trace.include_messages,
+        },
+        evidence=_evidence_records(trace, baseline_record, verification_record, provenance, agents),
+        claims=[claim.as_dict() for claim in claims],
+        verdict=_verdict(verification_record, baseline_record, claims, trace),
+        warnings=warnings,
+        redactions=redactions,
+        unknown_events=trace.unknown_event_types,
+        parse_errors=trace.parse_errors,
+    )
+    validate_receipt_dict(receipt.as_dict())
+    return receipt
+
+
+def validate_receipt_dict(data: dict[str, Any]) -> None:
+    errors: list[str] = []
+    required = {
+        "receipt_schema_version",
+        "receipt_type",
+        "tool_version",
+        "generated_at",
+        "codex",
+        "repository",
+        "issue",
+        "baseline",
+        "commands",
+        "verification",
+        "agents",
+        "trace",
+        "evidence",
+        "claims",
+        "verdict",
+        "warnings",
+        "redactions",
+        "unknown_events",
+        "parse_errors",
+    }
+    errors.extend(f"missing required field: {key}" for key in sorted(required - set(data)))
+    if data.get("receipt_schema_version") != RECEIPT_SCHEMA_VERSION:
+        errors.append(f"receipt_schema_version must be {RECEIPT_SCHEMA_VERSION}")
+    if data.get("receipt_type") != RECEIPT_TYPE:
+        errors.append(f"receipt_type must be {RECEIPT_TYPE}")
+    if data.get("verdict") not in RECEIPT_VERDICTS:
+        errors.append("verdict has an unsupported value")
+    trace = data.get("trace")
+    if (
+        not isinstance(trace, dict)
+        or not isinstance(trace.get("sha256"), str)
+        or not HASH_RE.fullmatch(trace.get("sha256", ""))
+    ):
+        errors.append("trace.sha256 must be a lowercase SHA-256 hash")
+    codex = data.get("codex")
+    if (
+        not isinstance(codex, dict)
+        or not isinstance(codex.get("source_trace_sha256"), str)
+        or not HASH_RE.fullmatch(codex.get("source_trace_sha256", ""))
+    ):
+        errors.append("codex.source_trace_sha256 must be a lowercase SHA-256 hash")
+    for key in (
+        "commands",
+        "evidence",
+        "claims",
+        "warnings",
+        "redactions",
+        "unknown_events",
+        "parse_errors",
+    ):
+        if not isinstance(data.get(key), list):
+            errors.append(f"{key} must be an array")
+    if errors:
+        raise SchemaValidationError("receipt validation failed: " + "; ".join(errors))
+
+
+def load_receipt(path: Path) -> CodexMaintenanceReceipt:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SchemaValidationError(f"could not read receipt JSON {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SchemaValidationError("receipt JSON root must be an object")
+    validate_receipt_dict(data)
+    return CodexMaintenanceReceipt(
+        receipt_schema_version=data["receipt_schema_version"],
+        receipt_type=data["receipt_type"],
+        tool_version=data["tool_version"],
+        generated_at=data["generated_at"],
+        codex=data["codex"],
+        repository=data["repository"],
+        issue=data["issue"],
+        baseline=data["baseline"],
+        commands=data["commands"],
+        verification=data["verification"],
+        agents=data["agents"],
+        trace=data["trace"],
+        evidence=data["evidence"],
+        claims=data["claims"],
+        verdict=data["verdict"],
+        warnings=data["warnings"],
+        redactions=data["redactions"],
+        unknown_events=data["unknown_events"],
+        parse_errors=data["parse_errors"],
+    )
+
+
+def render_receipt(receipt: CodexMaintenanceReceipt) -> str:
+    data = receipt.as_dict()
+    session = data["codex"].get("session_id") or data["codex"].get("task_id") or "unknown"
+    lines = [
+        "# Codex Maintenance Receipt",
+        "",
+        f"- Verdict: **{data['verdict']}**",
+        f"- Receipt schema: `{data['receipt_schema_version']}`",
+        f"- Tool: `{data['tool_version']}`",
+        f"- Generated: `{data['generated_at']}`",
+        "",
+        "## Codex run",
+        "",
+        f"- CLI version: `{data['codex'].get('cli_version') or 'unknown'}`",
+        f"- Session/task: `{session}`",
+        f"- Trace SHA-256: `{data['codex']['source_trace_sha256']}`",
+        f"- Adapter: `{data['codex']['adapter']}`",
+        f"- Raw trace persisted: `{data['codex']['raw_trace_persisted']}`",
+        "",
+        "## Issue",
+        "",
+        f"- Source: `{data['issue'].get('source')}`",
+        f"- URL: `{data['issue'].get('url') or 'not provided'}`",
+        f"- Number: `{data['issue'].get('number') or 'not provided'}`",
+        "",
+        "## Repository provenance",
+        "",
+        f"- Root: `{data['repository'].get('root')}`",
+        f"- HEAD: `{data['repository'].get('head_sha') or 'unknown'}`",
+        f"- Branch: `{data['repository'].get('branch') or 'unknown'}`",
+        f"- Dirty: `{data['repository'].get('dirty')}`",
+        f"- Changed files: `{data['repository'].get('changed_files', [])}`",
+        "",
+        "## Baseline and verification",
+        "",
+        f"- Baseline: **{(data['baseline'] or {}).get('outcome', 'not supplied')}**",
+        f"- Verification: **{data['verification'].get('outcome')}**",
+        f"- Relation: {data['verification'].get('reason') or 'not supplied'}",
+        "",
+        "## Claims",
+        "",
+    ]
+    if data["claims"]:
+        lines.extend(
+            f"- `{claim['id']}` `{claim['type']}`: **{claim['status']}** — {claim['reason']} "
+            f"(evidence: `{', '.join(claim['evidence_ids']) or 'none'}`)"
+            for claim in data["claims"]
+        )
+    else:
+        lines.append("- None supplied")
+    lines.extend(["", "## Commands", ""])
+    if data["commands"]:
+        lines.extend(
+            f"- `{command.get('id')}` `{command.get('display_command') or command.get('argv')}` "
+            f"→ exit `{command.get('exit_code')}`; timeout `{command.get('timed_out')}`"
+            for command in data["commands"]
+        )
+    else:
+        lines.append("- None")
+    for heading, key in (
+        ("Warnings", "warnings"),
+        ("Redactions", "redactions"),
+        ("Parse errors", "parse_errors"),
+    ):
+        lines.extend(["", f"## {heading}", ""])
+        values = data[key]
+        lines.extend(f"- {item}" for item in values) if values else lines.append("- None")
+    return "\n".join(lines) + "\n"
+
+
+def write_receipt_files(
+    receipt: CodexMaintenanceReceipt,
+    output: Path,
+) -> tuple[Path, Path]:
+    """Write receipt.json and receipt.md to an explicit file or directory."""
+
+    if output.suffix.lower() == ".json":
+        directory = output.parent
+        json_path = output
+    else:
+        directory = output
+        json_path = directory / "receipt.json"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        if directory.is_symlink():
+            raise DependencyError(f"receipt output directory must not be a symlink: {directory}")
+        json_path.write_text(receipt.to_json(), encoding="utf-8", newline="\n")
+        markdown_path = json_path.with_name("receipt.md")
+        markdown_path.write_text(render_receipt(receipt), encoding="utf-8", newline="\n")
+    except OSError as exc:
+        raise DependencyError(f"could not write receipt files under {directory}: {exc}") from exc
+    return json_path, markdown_path

@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible problem in oss-issue-proof
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include tokens, private keys, or raw sensitive Issue content.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of issue-proof --version
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Explicit command
+      description: The sanitized command you supplied; do not paste Issue-suggested shell snippets.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence summary
+      description: Paste relevant sanitized report fields, not raw secrets.
+    validations:
+      required: true

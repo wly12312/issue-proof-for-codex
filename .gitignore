@@ -1,0 +1,66 @@
+# Python bytecode and packaging metadata
+__pycache__/
+*.py[cod]
+*.pyd
+*.egg-info/
+
+# Test, coverage, and static-analysis caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments and local package/build output
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.whl
+*.tar.gz
+pip-wheel-metadata/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Real local runs: evidence, receipts, traces, and logs.
+# Keep the checked-in, sanitized fixtures under examples/ and tests/ tracked;
+# do not use a blanket *.jsonl or *.json ignore.
+.issue-proof/
+logs/
+*.log
+codex-run*.jsonl
+codex-trace*.jsonl
+*.codex-trace.jsonl
+receipts/
+evidence/
+/receipt.json
+/receipt.md
+/trace-summary.json
+/trace-summary.md
+/report.json
+/report.md

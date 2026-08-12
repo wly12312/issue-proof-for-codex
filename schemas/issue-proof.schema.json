@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/oss-issue-proof/issue-proof.schema.json",
+  "title": "oss-issue-proof evidence report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool_version",
+    "run_id",
+    "created_at",
+    "issue",
+    "repository",
+    "runtime",
+    "execution",
+    "artifacts",
+    "reproduction",
+    "verification",
+    "warnings",
+    "security_events",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "tool_version": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "location", "url", "title", "body_summary_hash", "body_excerpt"],
+      "properties": {
+        "source": {"enum": ["local-file", "github-url"]},
+        "location": {"type": "string", "minLength": 1},
+        "url": {"type": ["string", "null"]},
+        "title": {"type": "string"},
+        "body_summary_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "body_excerpt": {"type": "string"}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "remote_url", "head_sha", "branch", "dirty"],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "remote_url": {"type": ["string", "null"]},
+        "head_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
+        "branch": {"type": ["string", "null"]},
+        "dirty": {"type": ["boolean", "null"]}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "versions"],
+      "properties": {
+        "os": {"type": "string"},
+        "architecture": {"type": "string"},
+        "versions": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "display_command", "cwd", "started_at", "finished_at", "duration_seconds", "exit_code", "timed_out", "stdout", "stderr"],
+      "properties": {
+        "argv": {"type": "array", "items": {"type": "string"}},
+        "display_command": {"type": ["string", "null"]},
+        "cwd": {"type": ["string", "null"]},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "finished_at": {"type": ["string", "null"], "format": "date-time"},
+        "duration_seconds": {"type": ["number", "null"], "minimum": 0},
+        "exit_code": {"type": ["integer", "null"]},
+        "timed_out": {"type": "boolean"},
+        "stdout": {"$ref": "#/$defs/stream"},
+        "stderr": {"$ref": "#/$defs/stream"}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "size_bytes"],
+        "properties": {
+          "path": {"type": "string", "pattern": "^(?!/)(?![A-Za-z]:)[^\\\\]*$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "reproduction": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": {"enum": ["reproduced", "not-reproduced", "inconclusive", "not-run"]},
+        "reason": {"type": "string"},
+        "stability": {"type": "string"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": {"enum": ["verified", "not-fixed", "inconclusive", "not-applicable"]},
+        "reason": {"type": "string"},
+        "baseline_run_id": {"type": "string"},
+        "baseline_exit_code": {"type": ["integer", "null"]},
+        "verification_exit_code": {"type": ["integer", "null"]},
+        "baseline_stability": {"type": "string"}
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "security_events": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}},
+    "codex": {"type": ["object", "null"]}
+  },
+  "$defs": {
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "sha256", "captured_bytes", "truncated", "redacted"],
+      "properties": {
+        "summary": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "captured_bytes": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"},
+        "redacted": {"type": "boolean"}
+      }
+    }
+  }
+}

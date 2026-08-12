@@ -1,0 +1,18 @@
+{
+  "name": "oss-issue-proof",
+  "version": "0.1.0",
+  "description": "Codex-first evidence and verification receipts for open-source maintenance.",
+  "author": {
+    "name": "oss-issue-proof contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "IssueProof for Codex",
+    "shortDescription": "Create OSS maintenance verification receipts.",
+    "longDescription": "Import explicit Codex JSONL traces, compare baseline and independent verification evidence, and create redacted draft receipts without GitHub writes.",
+    "developerName": "oss-issue-proof contributors",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me reproduce an OSS issue, import a Codex trace, independently verify the fix, and draft a maintenance receipt."
+  }
+}

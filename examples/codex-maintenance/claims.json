@@ -1,0 +1,20 @@
+{
+  "claims": [
+    {
+      "id": "claim-baseline",
+      "type": "bug-reproduced",
+      "evidence_ids": ["baseline-reproduction"]
+    },
+    {
+      "id": "claim-fix",
+      "type": "fix-verified",
+      "evidence_ids": ["verification"]
+    },
+    {
+      "id": "claim-files",
+      "type": "files-changed",
+      "expected_files": ["src/bug.py"],
+      "evidence_ids": ["git-end", "trace-files"]
+    }
+  ]
+}

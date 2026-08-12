@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"synthetic-thread-001","codex_version":"fixture-compatible"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","command":"pytest tests/test_bug.py -q","cwd":".","exit_code":1,"duration_ms":12,"stdout":"F\nFAILED tests/test_bug.py::test_regression - AssertionError token=ghp_fixture_not_real","stderr":""}}
+{"type":"item.completed","item":{"id":"file-1","type":"file_change","path":"src/bug.py","operation":"modified"}}
+{"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"Bug reproduced before the fix; tests passed after the fix."}}
+{"type":"turn.completed"}

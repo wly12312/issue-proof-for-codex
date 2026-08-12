@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/oss-issue-proof/codex-maintenance-receipt.schema.json",
+  "title": "IssueProof CodexMaintenanceReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_schema_version",
+    "receipt_type",
+    "tool_version",
+    "generated_at",
+    "codex",
+    "repository",
+    "issue",
+    "baseline",
+    "commands",
+    "verification",
+    "agents",
+    "trace",
+    "evidence",
+    "claims",
+    "verdict",
+    "warnings",
+    "redactions",
+    "unknown_events",
+    "parse_errors"
+  ],
+  "properties": {
+    "receipt_schema_version": {"const": "1.0.0"},
+    "receipt_type": {"const": "CodexMaintenanceReceipt"},
+    "tool_version": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "codex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli_version", "app_version", "task_id", "session_id", "source_trace_sha256", "adapter", "raw_trace_persisted", "messages_included"],
+      "properties": {
+        "cli_version": {"type": ["string", "null"]},
+        "app_version": {"type": ["string", "null"]},
+        "task_id": {"type": ["string", "null"]},
+        "session_id": {"type": ["string", "null"]},
+        "source_trace_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "adapter": {"type": "string"},
+        "raw_trace_persisted": {"const": false},
+        "messages_included": {"type": "boolean"}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["root", "remote_url", "head_sha", "branch", "dirty", "worktree_path", "common_git_dir_sha256", "start", "end", "changed_files"],
+      "properties": {
+        "root": {"type": "string"},
+        "remote_url": {"type": ["string", "null"]},
+        "head_sha": {"type": ["string", "null"]},
+        "branch": {"type": ["string", "null"]},
+        "dirty": {"type": ["boolean", "null"]},
+        "worktree_path": {"type": "string"},
+        "common_git_dir_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "start": {"type": ["object", "null"]},
+        "end": {"type": ["object", "null"]},
+        "changed_files": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "issue": {"type": "object", "additionalProperties": true},
+    "baseline": {"type": ["object", "null"]},
+    "commands": {"type": "array", "items": {"type": "object"}},
+    "verification": {"type": "object", "additionalProperties": true},
+    "agents": {"type": "object", "additionalProperties": true},
+    "trace": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "sha256", "lines_seen", "valid_events", "unknown_event_count", "include_messages"],
+      "properties": {
+        "name": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "lines_seen": {"type": "integer", "minimum": 0},
+        "valid_events": {"type": "integer", "minimum": 0},
+        "unknown_event_count": {"type": "integer", "minimum": 0},
+        "include_messages": {"type": "boolean"}
+      }
+    },
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "claims": {"type": "array", "items": {"type": "object"}},
+    "verdict": {"enum": ["verified", "partially-verified", "unverified", "refuted", "inconclusive"]},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "redactions": {"type": "array", "items": {"type": "string"}},
+    "unknown_events": {"type": "array", "items": {"type": "string"}},
+    "parse_errors": {"type": "array", "items": {"type": "object"}}
+  }
+}

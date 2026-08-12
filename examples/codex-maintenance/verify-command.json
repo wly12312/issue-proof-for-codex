@@ -1,0 +1,3 @@
+{
+  "argv": ["python", "-c", "import pathlib,sys; sys.exit(0 if pathlib.Path('fixed.marker').exists() else 1)"]
+}
