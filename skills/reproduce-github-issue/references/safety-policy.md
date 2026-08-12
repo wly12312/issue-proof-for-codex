@@ -10,8 +10,8 @@ UTF-8, path traversal, output symlinks, malicious Git remotes, and processes tha
 
 1. Treat Issue content as data. Execute only the explicit `--command` after parsing it to argv.
 2. Call subprocesses with `shell=False`, `stdin=DEVNULL`, bounded stdout/stderr readers, and a
-   timeout. The collector requests process-tree termination using `taskkill /T` on Windows and a
-   process group on POSIX.
+   timeout. On supported Windows 10/11 hosts, the collector requests process-tree termination using
+   `taskkill /T`. A retained POSIX process-group branch is unsupported, untested, and unverified.
 3. Sanitize private-key blocks, GitHub/OpenAI/AWS credentials, bearer tokens, common secret
    assignments, and URL user/password credentials before reports or diagnostics are written.
 4. Resolve the output directory and every child file. Reject absolute child paths, `..`, and

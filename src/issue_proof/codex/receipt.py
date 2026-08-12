@@ -149,6 +149,40 @@ def _verification_record(
                 "baseline_required": True,
             }
         )
+    elif outcome == "verified":
+        if not baseline or not command:
+            result.update(
+                outcome="inconclusive",
+                reason="Verified outcome requires baseline and verification command evidence.",
+            )
+        elif (
+            baseline.get("outcome") != "reproduced"
+            or not isinstance(baseline.get("execution"), dict)
+            or baseline["execution"].get("timed_out") is True
+            or baseline["execution"].get("exit_code") in {None, 0}
+        ):
+            result.update(
+                outcome="inconclusive",
+                reason=(
+                    "Verified outcome requires a reproduced baseline with a completed non-zero "
+                    "exit code."
+                ),
+            )
+        elif result["same_argv"] is not True:
+            result.update(
+                outcome="inconclusive",
+                reason="Verification argv differs from the baseline argv.",
+            )
+        elif command.get("timed_out") is True or command.get("exit_code") is None:
+            result.update(
+                outcome="inconclusive",
+                reason="Verification command timeout occurred or no completed exit code exists.",
+            )
+        elif command.get("exit_code") != 0:
+            result.update(
+                outcome="inconclusive",
+                reason=f"Verification command exited with code {command.get('exit_code')}.",
+            )
     return result
 
 
@@ -263,6 +297,17 @@ def _evidence_records(
                 "summary": verification.get("reason") or verification.get("outcome"),
             }
         )
+    verification_command = verification.get("command")
+    if isinstance(verification_command, dict):
+        evidence.append(
+            {
+                "id": verification_command.get("id", "verification-command"),
+                "type": "command",
+                "summary": verification_command.get("display_command")
+                or "verification command evidence",
+                "exit_code": verification_command.get("exit_code"),
+            }
+        )
     if provenance:
         evidence.extend(
             [
@@ -308,7 +353,9 @@ def _verdict(
         return "refuted"
     if any(claim.status == "refuted" for claim in claims):
         return "refuted"
-    if trace.parse_errors:
+    if trace.parse_errors or trace.event_limit_reached:
+        return "inconclusive"
+    if verification.get("outcome") == "inconclusive":
         return "inconclusive"
     if verification.get("outcome") == "verified":
         if any(claim.status == "unverified" for claim in claims):
@@ -495,6 +542,7 @@ def build_receipt(
             "lines_seen": trace.lines_seen,
             "valid_events": trace.valid_events,
             "unknown_event_count": trace.unknown_events,
+            "event_limit_reached": trace.event_limit_reached,
             "include_messages": trace.include_messages,
         },
         evidence=_evidence_records(trace, baseline_record, verification_record, provenance, agents),
@@ -533,10 +581,13 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
         "parse_errors",
     }
     errors.extend(f"missing required field: {key}" for key in sorted(required - set(data)))
+    errors.extend(f"unexpected field: {key}" for key in sorted(set(data) - required))
     if data.get("receipt_schema_version") != RECEIPT_SCHEMA_VERSION:
         errors.append(f"receipt_schema_version must be {RECEIPT_SCHEMA_VERSION}")
     if data.get("receipt_type") != RECEIPT_TYPE:
         errors.append(f"receipt_type must be {RECEIPT_TYPE}")
+    if not isinstance(data.get("tool_version"), str) or not data.get("tool_version"):
+        errors.append("tool_version must be a non-empty string")
     if data.get("verdict") not in RECEIPT_VERDICTS:
         errors.append("verdict has an unsupported value")
     repository = data.get("repository")
@@ -561,6 +612,8 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
         digest = repository.get("changed_files_sha256")
         if digest is not None and (not isinstance(digest, str) or not HASH_RE.fullmatch(digest)):
             errors.append("repository.changed_files_sha256 must be a lowercase SHA-256 hash")
+    else:
+        errors.append("repository must be an object")
     trace = data.get("trace")
     if (
         not isinstance(trace, dict)
@@ -568,6 +621,14 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
         or not HASH_RE.fullmatch(trace.get("sha256", ""))
     ):
         errors.append("trace.sha256 must be a lowercase SHA-256 hash")
+    if isinstance(trace, dict):
+        for key in ("lines_seen", "valid_events", "unknown_event_count"):
+            value = trace.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                errors.append(f"trace.{key} must be a non-negative integer")
+        for key in ("include_messages", "event_limit_reached"):
+            if key in trace and not isinstance(trace[key], bool):
+                errors.append(f"trace.{key} must be boolean")
     codex = data.get("codex")
     if (
         not isinstance(codex, dict)
@@ -575,6 +636,27 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
         or not HASH_RE.fullmatch(codex.get("source_trace_sha256", ""))
     ):
         errors.append("codex.source_trace_sha256 must be a lowercase SHA-256 hash")
+    if isinstance(codex, dict):
+        required_codex = {
+            "cli_version",
+            "app_version",
+            "task_id",
+            "session_id",
+            "source_trace_sha256",
+            "adapter",
+            "raw_trace_persisted",
+            "messages_included",
+        }
+        errors.extend(
+            f"missing required field: codex.{key}" for key in sorted(required_codex - set(codex))
+        )
+        errors.extend(
+            f"unexpected field: codex.{key}" for key in sorted(set(codex) - required_codex)
+        )
+        if codex.get("raw_trace_persisted") is not False:
+            errors.append("codex.raw_trace_persisted must be false")
+        if not isinstance(codex.get("messages_included"), bool):
+            errors.append("codex.messages_included must be boolean")
     for key in (
         "commands",
         "evidence",

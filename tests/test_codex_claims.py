@@ -97,3 +97,27 @@ def test_changed_file_claims_stay_unverified_when_git_list_is_truncated() -> Non
     by_id = {claim.id: claim for claim in claims}
     assert by_id["files"].status == "unverified"
     assert by_id["clean"].status == "unverified"
+
+
+def test_no_source_changes_stays_unverified_without_git_evidence() -> None:
+    claims, _ = verify_claims(
+        [{"id": "clean", "type": "no-source-changes", "evidence_ids": ["git-end"]}],
+        {"commands": [], "evidence_ids": []},
+    )
+
+    assert claims[0].status == "unverified"
+    assert "unavailable" in claims[0].reason.lower()
+
+
+def test_files_changed_can_use_available_trace_evidence_without_git() -> None:
+    claims, _ = verify_claims(
+        [{"id": "files", "type": "files-changed", "expected_files": ["src/bug.py"]}],
+        {
+            "commands": [],
+            "trace_files": [{"path": "src/bug.py"}],
+            "evidence_ids": ["trace-files"],
+        },
+    )
+
+    assert claims[0].evidence_ids == ["trace-files"]
+    assert claims[0].status == "supported"

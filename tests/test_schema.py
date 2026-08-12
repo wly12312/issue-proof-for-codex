@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -123,3 +124,52 @@ def test_report_accepts_additive_codex_fragment(tmp_path) -> None:
     data = report.as_dict()
     validate_report_dict(data)
     assert data["codex"]["receipt_type"] == "CodexMaintenanceReceipt"
+
+
+def test_report_validator_rejects_unknown_root_fields(tmp_path) -> None:
+    from issue_proof.collector import collect_from_issue_file
+
+    report, _, _ = collect_from_issue_file(
+        issue_file=Path(__file__).parent / "fixtures" / "issue.md",
+        repo_root=Path(__file__).parents[1],
+        command=None,
+        output_dir=tmp_path / "unknown-report-field",
+    )
+    data = report.as_dict()
+    data["unexpected"] = True
+
+    with pytest.raises(SchemaValidationError, match="unexpected"):
+        validate_report_dict(data)
+
+
+def test_report_validator_enforces_nested_schema_constraints(tmp_path) -> None:
+    from issue_proof.collector import collect_from_issue_file
+
+    report, _, _ = collect_from_issue_file(
+        issue_file=Path(__file__).parent / "fixtures" / "issue.md",
+        repo_root=Path(__file__).parents[1],
+        command=None,
+        output_dir=tmp_path / "nested-report-schema",
+    )
+    base = report.as_dict()
+    cases = []
+    for section in ("issue", "repository", "runtime", "execution"):
+        data = deepcopy(base)
+        data[section]["unexpected"] = True
+        cases.append(data)
+    data = deepcopy(base)
+    data["execution"]["stdout"]["unexpected"] = True
+    cases.append(data)
+    data = deepcopy(base)
+    data["artifacts"][0]["unexpected"] = True
+    cases.append(data)
+    data = deepcopy(base)
+    data["execution"]["duration_seconds"] = -1
+    cases.append(data)
+    data = deepcopy(base)
+    data["tool_version"] = ""
+    cases.append(data)
+
+    for data in cases:
+        with pytest.raises(SchemaValidationError):
+            validate_report_dict(data)

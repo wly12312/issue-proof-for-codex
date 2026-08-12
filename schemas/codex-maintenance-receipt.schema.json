@@ -111,6 +111,7 @@
         "lines_seen": {"type": "integer", "minimum": 0},
         "valid_events": {"type": "integer", "minimum": 0},
         "unknown_event_count": {"type": "integer", "minimum": 0},
+        "event_limit_reached": {"type": "boolean"},
         "include_messages": {"type": "boolean"}
       }
     },

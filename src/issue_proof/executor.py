@@ -99,11 +99,13 @@ def _split_argv(command: str) -> list[str]:
 
     tokens: list[str] = []
     current: list[str] = []
+    token_started = False
     quote: str | None = None
     index = 0
     while index < len(command):
         char = command[index]
         if char == "\\" and os.name != "nt":
+            token_started = True
             next_char = command[index + 1] if index + 1 < len(command) else ""
             if next_char in {'"', "'", "\\", " ", "\t", "\r", "\n"}:
                 current.append(next_char)
@@ -118,17 +120,20 @@ def _split_argv(command: str) -> list[str]:
             else:
                 current.append(char)
         elif char in {'"', "'"}:
+            token_started = True
             quote = char
         elif char.isspace():
-            if current:
+            if token_started:
                 tokens.append("".join(current))
                 current = []
+                token_started = False
         else:
+            token_started = True
             current.append(char)
         index += 1
     if quote:
         raise ValueError("No closing quotation")
-    if current:
+    if token_started:
         tokens.append("".join(current))
     return tokens
 
@@ -163,7 +168,7 @@ def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
         return
     try:
         if os.name == "nt":
-            subprocess.run(
+            result = subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                 check=False,
                 stdout=subprocess.DEVNULL,
@@ -171,6 +176,8 @@ def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
                 shell=False,
                 timeout=5,
             )
+            if result.returncode != 0 and process.poll() is None:
+                process.kill()
         else:
             os.killpg(process.pid, signal.SIGTERM)
             time.sleep(0.1)

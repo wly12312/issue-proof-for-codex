@@ -187,6 +187,9 @@ def _trace_limits(args: argparse.Namespace):
 
 def _doctor(_: argparse.Namespace) -> int:
     print("issue-proof doctor")
+    print("- Support: Windows 10/11")
+    print("- Tested Python: 3.11, 3.12, 3.14")
+    print("- Linux/macOS: unsupported, untested, and unverified")
     print(f"- Python: {platform.python_version()} ({sys.executable})")
     print(f"- OS: {platform.system()} {platform.machine()}")
     print(f"- Git: {shutil.which('git') or 'not found'}")
@@ -197,6 +200,9 @@ def _doctor(_: argparse.Namespace) -> int:
 def _codex_doctor(_: argparse.Namespace) -> int:
     candidate = shutil.which("codex.cmd") or shutil.which("codex")
     print("issue-proof codex doctor")
+    print("- Support: Windows 10/11")
+    print("- Tested Python: 3.11, 3.12, 3.14")
+    print("- Linux/macOS: unsupported, untested, and unverified")
     print(f"- Codex CLI: {candidate or 'not found'}")
     if candidate:
         try:

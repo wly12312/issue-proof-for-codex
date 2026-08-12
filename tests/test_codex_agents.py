@@ -36,8 +36,11 @@ def test_agents_records_symlink_without_following_when_supported(tmp_path) -> No
     link = tmp_path / "AGENTS.md"
     try:
         link.symlink_to(outside)
-    except (OSError, NotImplementedError):
-        pytest.skip("symlinks are not available in this test environment")
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(
+            "Windows did not grant symlink creation permission; symlink behavior was not tested: "
+            f"{exc}"
+        )
     scan = collect_agents(tmp_path)
     assert scan.files[0]["symlink"] is True
     assert scan.files[0]["readable"] is False

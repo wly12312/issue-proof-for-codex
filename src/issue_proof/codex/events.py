@@ -54,6 +54,7 @@ class TraceSummary:
     codex_app_version: str | None = None
     unknown_events: int = 0
     unknown_event_types: list[str] = field(default_factory=list)
+    event_limit_reached: bool = False
     parse_errors: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     redactions: list[str] = field(default_factory=list)
@@ -72,6 +73,7 @@ class TraceSummary:
             "codex_app_version": self.codex_app_version,
             "unknown_events": self.unknown_events,
             "unknown_event_types": self.unknown_event_types,
+            "event_limit_reached": self.event_limit_reached,
             "command_evidence": self.command_evidence,
             "tool_calls": self.tool_calls,
             "file_changes": self.file_changes,

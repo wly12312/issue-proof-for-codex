@@ -3,7 +3,7 @@ from pathlib import Path
 
 from issue_proof.collector import collect_from_issue_file
 from issue_proof.executor import ExecutionLimits
-from issue_proof.verify import verify_against_baseline
+from issue_proof.verify import verify_against_baseline, verify_argv_against_baseline
 
 
 def python_command(code: str) -> str:
@@ -59,6 +59,29 @@ def test_verify_marks_non_reproduced_baseline_inconclusive(tmp_path) -> None:
     current = verify_against_baseline(
         baseline_report,
         command=python_command("import sys; sys.exit(0)"),
+        repo_root=tmp_path,
+    )
+    assert current.verification["outcome"] == "inconclusive"
+
+
+def test_verify_rejects_reproduced_baseline_with_zero_exit(tmp_path) -> None:
+    baseline_report, command = baseline(tmp_path)
+    baseline_report.reproduction["outcome"] = "reproduced"
+    baseline_report.execution.exit_code = 0
+    argv = list(baseline_report.execution.argv)
+
+    direct = verify_argv_against_baseline(
+        baseline_report,
+        argv=argv,
+        execution={"exit_code": 0, "timed_out": False},
+        repo_root=tmp_path,
+    )
+    assert direct["verification"]["outcome"] == "inconclusive"
+
+    (tmp_path / "fixed.marker").write_text("fixed", encoding="utf-8")
+    current = verify_against_baseline(
+        baseline_report,
+        command=command,
         repo_root=tmp_path,
     )
     assert current.verification["outcome"] == "inconclusive"

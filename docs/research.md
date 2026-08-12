@@ -88,7 +88,9 @@ choosing a distribution name; `oss-issue-proof` remains the natural candidate fo
 ## Architecture decisions
 
 1. Use only the Python standard library for the runtime package. `argparse`, dataclasses, JSON, and
-   `subprocess` keep the first release portable on Windows, Linux, and macOS without Docker.
+   `subprocess` avoid an OS-specific runtime dependency. Version 0.1.2 formally supports Windows
+   10/11 only and is tested with Python 3.11, 3.12, and 3.14; retained Linux/macOS branches are
+   unsupported, untested, and unverified.
 2. Execute only an explicitly supplied command after parsing it into an argv array. Never pass the
    issue body, README, or logs to a shell. An explicit URL fetch is limited to the user's `gh`
    command and remains a separate dependency boundary.

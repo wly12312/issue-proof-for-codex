@@ -216,10 +216,24 @@ def _require(
     return data[key]
 
 
+def _reject_extra_fields(
+    data: dict[str, Any], allowed: set[str], prefix: str, errors: list[str]
+) -> None:
+    errors.extend(
+        f"unexpected field: {prefix}{key}" for key in sorted(set(data).difference(allowed))
+    )
+
+
 def _validate_stream(stream: Any, prefix: str, errors: list[str]) -> None:
     if not isinstance(stream, dict):
         errors.append(f"{prefix} must be an object")
         return
+    _reject_extra_fields(
+        stream,
+        {"summary", "sha256", "captured_bytes", "truncated", "redacted"},
+        f"{prefix}.",
+        errors,
+    )
     for key in ("summary", "sha256", "captured_bytes", "truncated", "redacted"):
         _require(stream, key, (str, int, bool), errors)
     if not isinstance(stream.get("summary"), str):
@@ -237,7 +251,7 @@ def validate_report_dict(data: dict[str, Any]) -> None:
     """Validate the contract used by the bundled JSON Schema without third-party packages."""
 
     errors: list[str] = []
-    for key in (
+    required = {
         "schema_version",
         "tool_version",
         "run_id",
@@ -252,14 +266,19 @@ def validate_report_dict(data: dict[str, Any]) -> None:
         "warnings",
         "security_events",
         "notes",
-    ):
+    }
+    allowed = required | {"codex"}
+    for key in required:
         if key not in data:
             errors.append(f"missing required field: {key}")
+    errors.extend(f"unexpected field: {key}" for key in sorted(set(data) - allowed))
     if data.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"schema_version must be {SCHEMA_VERSION}")
     for key in ("tool_version", "run_id"):
         if key in data and not isinstance(data[key], str):
             errors.append(f"{key} must be a string")
+    if isinstance(data.get("tool_version"), str) and not data["tool_version"]:
+        errors.append("tool_version must not be empty")
     if not isinstance(data.get("created_at"), str) or not ISO_RE.fullmatch(
         data.get("created_at", "")
     ):
@@ -269,6 +288,12 @@ def validate_report_dict(data: dict[str, Any]) -> None:
     if not isinstance(issue, dict):
         errors.append("issue must be an object")
     else:
+        _reject_extra_fields(
+            issue,
+            {"source", "location", "url", "title", "body_summary_hash", "body_excerpt"},
+            "issue.",
+            errors,
+        )
         for key in ("source", "location", "title", "body_summary_hash", "body_excerpt"):
             _require(issue, key, str, errors)
         if issue.get("source") not in {"local-file", "github-url"}:
@@ -288,6 +313,12 @@ def validate_report_dict(data: dict[str, Any]) -> None:
     if not isinstance(repository, dict):
         errors.append("repository must be an object")
     else:
+        _reject_extra_fields(
+            repository,
+            {"root", "remote_url", "head_sha", "branch", "dirty"},
+            "repository.",
+            errors,
+        )
         _require(repository, "root", str, errors)
         for key in ("remote_url", "head_sha", "branch"):
             if (
@@ -307,6 +338,7 @@ def validate_report_dict(data: dict[str, Any]) -> None:
     if not isinstance(runtime, dict):
         errors.append("runtime must be an object")
     else:
+        _reject_extra_fields(runtime, {"os", "architecture", "versions"}, "runtime.", errors)
         for key in ("os", "architecture"):
             _require(runtime, key, str, errors)
         if not isinstance(runtime.get("versions"), dict) or not all(
@@ -319,6 +351,23 @@ def validate_report_dict(data: dict[str, Any]) -> None:
     if not isinstance(execution, dict):
         errors.append("execution must be an object")
     else:
+        _reject_extra_fields(
+            execution,
+            {
+                "argv",
+                "display_command",
+                "cwd",
+                "started_at",
+                "finished_at",
+                "duration_seconds",
+                "exit_code",
+                "timed_out",
+                "stdout",
+                "stderr",
+            },
+            "execution.",
+            errors,
+        )
         _require(execution, "argv", list, errors)
         if not all(isinstance(item, str) for item in execution.get("argv", [])):
             errors.append("execution.argv must contain only strings")
@@ -339,6 +388,11 @@ def validate_report_dict(data: dict[str, Any]) -> None:
             errors.append("execution.finished_at must be ISO-8601 or null")
         if not isinstance(execution.get("duration_seconds"), (int, float, type(None))):
             errors.append("execution.duration_seconds must be a number or null")
+        elif (
+            isinstance(execution.get("duration_seconds"), (int, float))
+            and execution["duration_seconds"] < 0
+        ):
+            errors.append("execution.duration_seconds must be non-negative")
         if not isinstance(execution.get("exit_code"), (int, type(None))):
             errors.append("execution.exit_code must be an integer or null")
         if not isinstance(execution.get("timed_out"), bool):
@@ -354,6 +408,12 @@ def validate_report_dict(data: dict[str, Any]) -> None:
             if not isinstance(artifact, dict):
                 errors.append(f"artifacts[{index}] must be an object")
                 continue
+            _reject_extra_fields(
+                artifact,
+                {"path", "sha256", "size_bytes"},
+                f"artifacts[{index}].",
+                errors,
+            )
             for key in ("path", "sha256", "size_bytes"):
                 _require(artifact, key, (str, int), errors)
             artifact_path = artifact.get("path", "")

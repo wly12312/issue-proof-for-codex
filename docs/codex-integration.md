@@ -3,11 +3,14 @@
 IssueProof is a downstream evidence layer. It does not launch Codex, inject a prompt, or inspect
 Codex's private local state. A maintainer or CI job explicitly saves a JSONL trace, then imports it:
 
-```text
+```powershell
 issue-proof codex ingest --trace codex-run.jsonl --output .issue-proof/codex-run
 issue-proof codex receipt --trace codex-run.jsonl --issue-file issue.md --output receipt.json
 issue-proof codex verify --baseline .issue-proof/baseline/report.json --trace codex-run.jsonl --command-argv verify-command.json --output .issue-proof/verified
 ```
+
+The bundled CLI workflow is officially supported on Windows 10/11 and tested with Python 3.11,
+3.12, and 3.14. Linux and macOS are unsupported, untested, and unverified.
 
 ## Official versus experimental boundary
 

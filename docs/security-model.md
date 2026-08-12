@@ -21,8 +21,8 @@ credentials, corrupt JSONL, and child processes that outlive a timeout.
   with `shell=False`; common shell operators, command substitution, redirection, and NUL bytes are
   rejected.
 - Subprocesses receive `stdin=DEVNULL`, a configurable timeout, and bounded stdout/stderr readers.
-  Windows uses `taskkill /T /F` on timeout; POSIX starts a process group and requests group
-  termination.
+  Supported Windows 10/11 hosts use `taskkill /T /F` on timeout. A retained POSIX process-group
+  branch is unsupported, untested, and unverified.
 - Only OS, architecture, and selected runtime versions are recorded. The full environment is never
   serialized.
 - Common GitHub/OpenAI/AWS credentials, bearer tokens, password-like assignments, URL credentials,
@@ -44,6 +44,11 @@ credentials, corrupt JSONL, and child processes that outlive a timeout.
   baselines downgrade the verdict.
 
 ## Residual risk and limitations
+
+The CLI, verification commands, process management, validators, and complete test suite are
+supported only on Windows 10/11 and tested with Python 3.11, 3.12, and 3.14. Linux and macOS are
+unsupported, untested, and unverified; retained cross-platform branches do not constitute a
+compatibility claim.
 
 This is not a security sandbox. An explicitly authorized executable may modify files, access the
 network, inspect secrets, launch another interpreter, or evade a timeout. Parser checks reduce

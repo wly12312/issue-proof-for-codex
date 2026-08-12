@@ -1,3 +1,3 @@
-"""Portable evidence and verification for Codex-powered open-source maintenance."""
+"""Local evidence and verification for Codex-powered open-source maintenance."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"

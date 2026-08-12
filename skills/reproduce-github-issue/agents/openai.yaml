@@ -1,4 +1,4 @@
 interface:
   display_name: "Codex Maintenance Receipt"
-  short_description: "Reproduce, verify, and receipt OSS maintenance"
+  short_description: "Windows issue reproduction and verification receipts"
   default_prompt: "Use $reproduce-github-issue to baseline an issue, inspect a Codex trace, and create a draft maintenance receipt."

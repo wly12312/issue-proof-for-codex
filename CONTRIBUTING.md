@@ -4,19 +4,19 @@
 
 Use Python 3.11 or newer and an editable install:
 
-```text
+```powershell
 python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
-On Windows PowerShell, activate with `./.venv/Scripts/Activate.ps1`; on POSIX use
-`source .venv/bin/activate`.
+On Windows PowerShell, activate with `./.venv/Scripts/Activate.ps1`. The supported development and
+test environment is Windows 10/11; Linux and macOS are unsupported, untested, and unverified.
 
 ## Checks
 
 Run the full local quality gate:
 
-```text
+```powershell
 ruff format --check .
 ruff check .
 pytest --cov=issue_proof --cov-report=term-missing

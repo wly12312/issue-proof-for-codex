@@ -8,6 +8,8 @@
 - Streaming, tolerant Codex JSONL import; versioned `CodexMaintenanceReceipt`; AGENTS and Git
   provenance; deterministic claims; offline baseline-to-trace-to-verify flow.
 - Python CLI, Agent Skill, skill-only Codex plugin manifest, synthetic fixtures, tests, and CI matrix.
+- Version 0.1.2 officially supports Windows 10/11 with Python 3.11, 3.12, and 3.14. Linux and macOS
+  are unsupported, untested, and unverified.
 
 ## 0.2
 

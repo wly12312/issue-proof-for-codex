@@ -9,3 +9,6 @@ Include the affected version, platform, reproduction steps that do not expose se
 the issue affects command execution, redaction, output paths, or process termination. Do not attach
 raw logs or credentials. The project is an MVP and is not a sandbox; see
 [`docs/security-model.md`](docs/security-model.md) for the threat model and limitations.
+
+Version 0.1.2 officially supports Windows 10/11 with Python 3.11, 3.12, and 3.14. Linux and macOS
+are unsupported, untested, and unverified.

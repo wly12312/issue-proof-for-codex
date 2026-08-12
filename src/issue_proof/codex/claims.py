@@ -219,7 +219,8 @@ def _status_for_commands(commands: list[dict[str, Any]]) -> tuple[str, str]:
 
 def _changed_files_are_incomplete(end_git: dict[str, Any]) -> bool:
     return (
-        end_git.get("captured") is False
+        not end_git
+        or end_git.get("captured") is False
         or bool(end_git.get("changed_files_truncated"))
         or bool(end_git.get("changed_files_overflow"))
         or bool(end_git.get("changed_files_path_overflow"))
@@ -248,7 +249,6 @@ def verify_claims(
     trace_files = evidence.get("trace_files", [])
     all_ids = set(evidence.get("evidence_ids", []))
     all_ids.update(command_by_id)
-    all_ids.update({"baseline-reproduction", "verification", "git-end", "trace-files"})
     warnings: list[str] = []
     for claim in claims:
         if claim.type not in CLAIM_TYPES:
@@ -267,7 +267,14 @@ def verify_claims(
             elif claim.type == "no-source-changes" and git:
                 claim.evidence_ids = ["git-end"]
             elif claim.type == "files-changed" and (git or trace_files):
-                claim.evidence_ids = ["git-end", "trace-files"]
+                claim.evidence_ids = [
+                    evidence_id
+                    for evidence_id, available in (
+                        ("git-end", bool(git)),
+                        ("trace-files", bool(trace_files)),
+                    )
+                    if available
+                ]
         missing = [item for item in claim.evidence_ids if item not in all_ids]
         if missing:
             claim.status = "unverified"
@@ -337,7 +344,7 @@ def verify_claims(
                     "Git changed-file evidence is unavailable.",
                 )
         elif claim.type == "files-changed":
-            if _changed_files_are_incomplete(end_git):
+            if "git-end" in claim.evidence_ids and _changed_files_are_incomplete(end_git):
                 claim.status, claim.reason = (
                     "unverified",
                     "Git changed-file evidence was truncated or unavailable; expected files "

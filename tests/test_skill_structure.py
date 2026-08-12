@@ -4,7 +4,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
+
+import issue_proof
 
 
 def test_skill_frontmatter_and_resources_follow_contract() -> None:
@@ -66,7 +69,27 @@ def test_skill_standalone_references_and_installed_cli_delegate(tmp_path) -> Non
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "0.1.0"
+    assert result.stdout.strip() == "0.1.2"
     script = (standalone_skill / "scripts" / "run_issue_proof.py").read_text(encoding="utf-8")
     assert "sys.path" not in script
     assert ".parents" not in script
+
+
+def test_release_metadata_matches_current_v0_1_2_tag() -> None:
+    root = Path(__file__).parents[1]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    plugin = json.loads((root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    artifact = (root / ".github" / "workflows" / "codex-receipt-artifact.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert project["project"]["version"] == "0.1.2"
+    assert issue_proof.__version__ == "0.1.2"
+    assert plugin["version"] == "0.1.2"
+    assert "runs-on: windows-latest" in ci
+    assert "python-version: ['3.11', '3.12', '3.14']" in ci
+    assert "ubuntu-latest" not in ci
+    assert "runs-on: windows-latest" in artifact
+    assert "shell: pwsh" in artifact
+    assert "shell: bash" not in artifact

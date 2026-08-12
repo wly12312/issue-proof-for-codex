@@ -23,7 +23,7 @@ or an unbounded conversation.
 The Codex layer is offline and needs no API key. It never starts Codex; it consumes a JSONL trace
 that a user or CI job has already saved. With a local source checkout:
 
-```text
+```powershell
 python -m issue_proof codex doctor
 python -m issue_proof codex ingest --trace codex-run.jsonl --output .issue-proof/codex-run
 python -m issue_proof codex receipt --trace codex-run.jsonl --issue-url https://github.com/OWNER/REPO/issues/123 --output receipt.json
@@ -43,7 +43,7 @@ claims, and Markdown receipt shape.
 
 The shortest offline check after installation is:
 
-```text
+```powershell
 issue-proof codex ingest --trace examples/codex-maintenance/trace-order-a.jsonl --output .issue-proof/codex-run
 ```
 
@@ -83,7 +83,7 @@ tasks. It does not replace human review, prove causality, or infer success from 
 
 The original model-independent commands remain available and do not require Codex:
 
-```text
+```powershell
 issue-proof doctor
 issue-proof collect --issue-file issue.md --command "pytest tests/test_bug.py -q" --output .issue-proof/baseline
 issue-proof validate .issue-proof/baseline/report.json
@@ -108,10 +108,9 @@ was written successfully.
 
 Requires Python 3.11+.
 
-```text
+```powershell
 python -m venv .venv
 Windows PowerShell: .\.venv\Scripts\Activate.ps1
-POSIX shell: source .venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
 
@@ -128,12 +127,15 @@ to the wheel.
 
 ## Platform support
 
-- Windows: locally exercised on Python 3.12; the symlink-specific provenance test is skipped when
-  the host does not grant Windows symlink creation, and this limitation is reported rather than
-  treated as a pass.
-- Linux: included in the GitHub Actions matrix through `ubuntu-latest`; no local Linux run is
-  claimed from this checkout.
-- macOS: not exercised by this prerelease and not covered by the current workflow.
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
+
+The Skill workflow can be read on other platforms, and existing cross-platform implementation
+branches remain in the codebase, but the bundled `issue-proof` CLI, verification commands, process
+management, validators, and complete test suite are supported only on Windows. When Windows does
+not grant symlink creation permission, the symlink-specific test is reported as skipped with that
+reason; it is not counted as passed.
 
 ## Security and privacy defaults
 
@@ -157,8 +159,8 @@ See [`docs/security-model.md`](docs/security-model.md) and [`SECURITY.md`](SECUR
 
 The existing `reproduce-github-issue` Skill now guides Codex maintenance from baseline through
 receipt, including downgrade conditions and draft-only boundaries. The normal CI validates the
-package, schema, Skill, and offline fixtures on Ubuntu and Windows with Python 3.11 and the current
-stable matrix entry. A separate manual workflow can consume uploaded trace/report artifacts from an
+package, schema, Skill, and offline fixtures on `windows-latest` with Python 3.11, 3.12, and 3.14.
+A separate Windows-only manual workflow can consume uploaded trace/report artifacts from an
 explicit source run ID and generate a receipt artifact with read-only `contents`/`actions` access; it
 does not post comments or run `pull_request_target`.
 

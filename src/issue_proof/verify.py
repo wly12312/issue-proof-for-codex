@@ -30,9 +30,16 @@ def verify_argv_against_baseline(
     if baseline_outcome != "reproduced":
         outcome = "inconclusive"
         reason = "Baseline was not a completed reproduced run, so a fix cannot be inferred."
-    elif baseline_execution.timed_out or baseline_execution.exit_code is None:
+    elif (
+        baseline_execution.timed_out
+        or baseline_execution.exit_code is None
+        or baseline_execution.exit_code == 0
+    ):
         outcome = "inconclusive"
-        reason = "Baseline timed out or had no exit code, so it is not a stable comparison point."
+        reason = (
+            "Baseline timed out, had no exit code, or exited 0, so it is not a reproduced "
+            "failure and cannot be used as a stable comparison point."
+        )
     elif baseline_execution.argv != argv:
         outcome = "inconclusive"
         reason = (
@@ -87,9 +94,16 @@ def verify_against_baseline(
     if baseline.reproduction.get("outcome") != "reproduced":
         outcome = "inconclusive"
         reason = "Baseline was not a completed reproduced run, so a fix cannot be inferred."
-    elif baseline_execution.timed_out or baseline_execution.exit_code is None:
+    elif (
+        baseline_execution.timed_out
+        or baseline_execution.exit_code is None
+        or baseline_execution.exit_code == 0
+    ):
         outcome = "inconclusive"
-        reason = "Baseline timed out or had no exit code, so it is not a stable comparison point."
+        reason = (
+            "Baseline timed out, had no exit code, or exited 0, so it is not a reproduced "
+            "failure and cannot be used as a stable comparison point."
+        )
     elif baseline_execution.argv != execution.argv:
         outcome = "inconclusive"
         reason = (

@@ -5,6 +5,13 @@ description: Use when a maintainer asks Codex to reproduce an open-source issue,
 
 # Reproduce and verify an issue
 
+## Support boundary
+
+This workflow can be read on any platform, but its bundled `issue-proof` CLI, verification
+commands, process management, validators, and complete test suite are supported only on Windows
+10/11. Tested Python versions are 3.11, 3.12, and 3.14. Linux and macOS are unsupported, untested,
+and unverified.
+
 ## Rules
 
 1. Read the contribution guide, repository instructions, relevant AGENTS files, and test commands.
@@ -14,7 +21,7 @@ description: Use when a maintainer asks Codex to reproduce an open-source issue,
    and relevant instruction-file provenance before a maintenance task. Record the ending state too.
 3. Establish a baseline with a focused, explicit argv command. Use the generic CLI for local evidence:
 
-   ```text
+   ```powershell
    issue-proof collect --issue-file issue.md --command "pytest tests/test_bug.py -q" --output .issue-proof/baseline
    ```
 
@@ -22,7 +29,7 @@ description: Use when a maintainer asks Codex to reproduce an open-source issue,
    policy. Do not launch a Codex task from this Skill and do not assume a worktree is clean.
 5. Save an explicitly selected `codex exec --json` trace if one exists. Import only that path:
 
-   ```text
+   ```powershell
    issue-proof codex ingest --trace codex-run.jsonl --output .issue-proof/codex-run
    ```
 
@@ -30,7 +37,7 @@ description: Use when a maintainer asks Codex to reproduce an open-source issue,
    event payloads.
 6. Verify independently with the same argv stored as JSON, not a shell string:
 
-   ```text
+   ```powershell
    issue-proof codex verify --baseline .issue-proof/baseline/report.json --trace codex-run.jsonl --command-argv verify-command.json --output .issue-proof/verified
    ```
 
@@ -55,7 +62,7 @@ bundled Skill script delegates to that installed CLI and does not load repositor
 
 For a changed path, inspect repository-scoped instructions without reading Codex home/history:
 
-```text
+```powershell
 issue-proof codex agents --repo PATH --target changed/file.py
 ```
 

@@ -518,6 +518,7 @@ def parse_trace(
                     raise TraceParseError(error["message"])
                 continue
             if summary.valid_events >= selected.max_events:
+                summary.event_limit_reached = True
                 if "event limit reached" not in summary.warnings:
                     summary.warnings.append(
                         f"trace event limit reached at {selected.max_events}; "
