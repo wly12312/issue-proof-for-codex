@@ -118,6 +118,14 @@ python -m pip install -e ".[dev]"
 Runtime dependencies are standard-library only. Codex is optional and is detected only by the
 read-only `issue-proof codex doctor` command; the receipt adapter also works when Codex is absent.
 
+## Distribution model
+
+The Python wheel distributes the `issue-proof` CLI and its runtime package only. The Codex Skill
+and `.codex-plugin` manifest are installed from a repository checkout or another source bundle;
+installing the wheel does not install the complete Codex Skill/plugin. Schemas, examples, tests,
+and extended documentation remain source-repository artifacts rather than being mechanically added
+to the wheel.
+
 ## Platform support
 
 - Windows: locally exercised on Python 3.12; the symlink-specific provenance test is skipped when

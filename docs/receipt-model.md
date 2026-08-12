@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `receipt_schema_version`, `receipt_type`, `tool_version` | Contract and producer identity | No hidden runtime state |
 | `codex` | observed CLI/app version, task/session IDs, source trace SHA-256, adapter status | IDs are null when absent; raw trace is false by default |
-| `repository` | safe root representation, redacted remote, HEAD/branch/dirty, worktree and common-dir digest, start/end state, changed files | no full home path or common Git directory |
+| `repository` | safe root representation, redacted remote, HEAD/branch/dirty, worktree and common-dir digest, start/end state, bounded changed files, total/recorded counts, truncation flags, and a complete-set digest | no full home path or common Git directory; a truncated path list is never treated as complete |
 | `issue` | URL/number/local location and body hash when provided | no full Issue body by default |
 | `baseline` | reproduction outcome, report ID, command evidence, stability | absent baseline cannot support a fix claim |
 | `commands` | safe argv/display/cwd, exit, duration, timeout, bounded stream summaries | output is redacted and size bounded |
@@ -24,6 +24,11 @@
 
 The object intentionally contains no full prompt, assistant transcript, hidden reasoning, environment
 dump, model token usage, Codex config, home history, or private app database content.
+
+Changed-file provenance uses a conservative entry and per-path byte limit. The receipt retains the
+complete normalized path-stream SHA-256, total count, recorded count, and overflow/truncation flags;
+warnings describe the omission without including omitted paths. Claims that require a complete
+changed-file set remain `unverified` when truncation occurs.
 
 ## Evidence IDs and claims
 

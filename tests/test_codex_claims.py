@@ -69,3 +69,31 @@ def test_claims_are_not_inferred_from_untrusted_message_without_opt_in() -> None
     assert claims[0].heuristic is True
     assert claims[0].source == "final-message-heuristic"
     assert "heuristic" in warnings[0]
+
+
+def test_changed_file_claims_stay_unverified_when_git_list_is_truncated() -> None:
+    evidence = _evidence() | {
+        "git": {
+            "end": {
+                "changed_files": [],
+                "captured": True,
+                "changed_files_truncated": True,
+                "changed_files_overflow": True,
+            }
+        }
+    }
+    claims, _ = verify_claims(
+        [
+            {
+                "id": "files",
+                "type": "files-changed",
+                "expected_files": ["src/bug.py"],
+                "evidence_ids": ["git-end"],
+            },
+            {"id": "clean", "type": "no-source-changes", "evidence_ids": ["git-end"]},
+        ],
+        evidence,
+    )
+    by_id = {claim.id: claim for claim in claims}
+    assert by_id["files"].status == "unverified"
+    assert by_id["clean"].status == "unverified"

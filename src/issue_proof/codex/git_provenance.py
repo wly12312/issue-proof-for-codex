@@ -3,12 +3,32 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ..redact import redact_text, sha256_text
+
+MAX_CHANGED_FILES = 256
+MAX_CHANGED_FILE_PATH_BYTES = 512
+EMPTY_CHANGED_FILES_SHA256 = hashlib.sha256(b"").hexdigest()
+
+
+@dataclass
+class ChangedFilesCapture:
+    """Bounded changed-file output with a digest over the complete normalized input."""
+
+    files: list[str]
+    total: int
+    sha256: str
+    overflow: bool = False
+    path_overflow: bool = False
+
+    @property
+    def truncated(self) -> bool:
+        return self.overflow or self.path_overflow
 
 
 @dataclass
@@ -18,6 +38,14 @@ class GitState:
     dirty: bool | None
     changed_files: list[str] = field(default_factory=list)
     captured: bool = True
+    changed_files_total: int = 0
+    changed_files_recorded: int = 0
+    changed_files_truncated: bool = False
+    changed_files_overflow: bool = False
+    changed_files_path_overflow: bool = False
+    changed_files_sha256: str = EMPTY_CHANGED_FILES_SHA256
+    changed_files_limit: int = MAX_CHANGED_FILES
+    changed_file_path_max_bytes: int = MAX_CHANGED_FILE_PATH_BYTES
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -26,6 +54,14 @@ class GitState:
             "dirty": self.dirty,
             "changed_files": self.changed_files,
             "captured": self.captured,
+            "changed_files_total": self.changed_files_total,
+            "changed_files_recorded": self.changed_files_recorded,
+            "changed_files_truncated": self.changed_files_truncated,
+            "changed_files_overflow": self.changed_files_overflow,
+            "changed_files_path_overflow": self.changed_files_path_overflow,
+            "changed_files_sha256": self.changed_files_sha256,
+            "changed_files_limit": self.changed_files_limit,
+            "changed_file_path_max_bytes": self.changed_file_path_max_bytes,
         }
 
 
@@ -48,6 +84,14 @@ class GitProvenance:
             "start": self.start.as_dict(),
             "end": self.end.as_dict(),
             "changed_files": self.end.changed_files,
+            "changed_files_total": self.end.changed_files_total,
+            "changed_files_recorded": self.end.changed_files_recorded,
+            "changed_files_truncated": self.end.changed_files_truncated,
+            "changed_files_overflow": self.end.changed_files_overflow,
+            "changed_files_path_overflow": self.end.changed_files_path_overflow,
+            "changed_files_sha256": self.end.changed_files_sha256,
+            "changed_files_limit": self.end.changed_files_limit,
+            "changed_file_path_max_bytes": self.end.changed_file_path_max_bytes,
             "warnings": self.warnings,
         }
 
@@ -71,10 +115,18 @@ def _git(args: list[str], cwd: Path) -> tuple[int, str, str]:
     )
 
 
-def _changed_files(root: Path) -> tuple[list[str], str | None]:
+def _digest_changed_files(paths: list[str]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.encode("utf-8", errors="replace"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _changed_files(root: Path) -> tuple[ChangedFilesCapture | None, str | None]:
     code, status, error = _git(["status", "--porcelain", "--untracked-files=all"], root)
     if code != 0:
-        return [], error or "git status failed"
+        return None, error or "git status failed"
     files: list[str] = []
     for line in status.splitlines():
         if len(line) < 4:
@@ -92,7 +144,27 @@ def _changed_files(root: Path) -> tuple[list[str], str | None]:
         value = value.replace("\\", "/")
         if value and value not in files:
             files.append(value)
-    return sorted(files), None
+    normalized = sorted(set(files))
+    digest = _digest_changed_files(normalized)
+    path_overflow = False
+    recorded: list[str] = []
+    for path in normalized:
+        if len(path.encode("utf-8", errors="replace")) > MAX_CHANGED_FILE_PATH_BYTES:
+            path_overflow = True
+            continue
+        if len(recorded) >= MAX_CHANGED_FILES:
+            break
+        recorded.append(path)
+    return (
+        ChangedFilesCapture(
+            files=recorded,
+            total=len(normalized),
+            sha256=digest,
+            overflow=len(normalized) > MAX_CHANGED_FILES,
+            path_overflow=path_overflow,
+        ),
+        None,
+    )
 
 
 def collect_git_state(root: Path) -> tuple[GitState, list[str]]:
@@ -107,11 +179,33 @@ def collect_git_state(root: Path) -> tuple[GitState, list[str]]:
         warnings.append("Git branch is unavailable")
     elif not branch:
         branch = "(detached)"
-    files, status_error = _changed_files(root)
-    if status_error:
+    capture, status_error = _changed_files(root)
+    if status_error or capture is None:
         warnings.append("Git dirty state is unavailable")
         return GitState(head, branch, None, [], False), warnings
-    return GitState(head, branch, bool(files), files, True), warnings
+    if capture.overflow:
+        warnings.append(
+            "Git changed-file provenance exceeded the entry limit; omitted paths are "
+            "represented only by the total count and digest"
+        )
+    if capture.path_overflow:
+        warnings.append(
+            "Git changed-file provenance omitted paths over the per-path byte limit; "
+            "omitted paths are represented only by the total count and digest"
+        )
+    return GitState(
+        head_sha=head,
+        branch=branch,
+        dirty=bool(capture.total),
+        changed_files=capture.files,
+        captured=True,
+        changed_files_total=capture.total,
+        changed_files_recorded=len(capture.files),
+        changed_files_truncated=capture.truncated,
+        changed_files_overflow=capture.overflow,
+        changed_files_path_overflow=capture.path_overflow,
+        changed_files_sha256=capture.sha256,
+    ), warnings
 
 
 def collect_git_provenance(repo_root: Path) -> GitProvenance:

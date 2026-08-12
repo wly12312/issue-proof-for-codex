@@ -183,6 +183,14 @@ def _repository_record(provenance: GitProvenance | None) -> dict[str, Any]:
             "start": None,
             "end": None,
             "changed_files": [],
+            "changed_files_total": 0,
+            "changed_files_recorded": 0,
+            "changed_files_truncated": False,
+            "changed_files_overflow": False,
+            "changed_files_path_overflow": False,
+            "changed_files_sha256": None,
+            "changed_files_limit": None,
+            "changed_file_path_max_bytes": None,
         }
     end = provenance.end.as_dict()
     return {
@@ -196,6 +204,14 @@ def _repository_record(provenance: GitProvenance | None) -> dict[str, Any]:
         "start": provenance.start.as_dict(),
         "end": end,
         "changed_files": provenance.end.changed_files,
+        "changed_files_total": provenance.end.changed_files_total,
+        "changed_files_recorded": provenance.end.changed_files_recorded,
+        "changed_files_truncated": provenance.end.changed_files_truncated,
+        "changed_files_overflow": provenance.end.changed_files_overflow,
+        "changed_files_path_overflow": provenance.end.changed_files_path_overflow,
+        "changed_files_sha256": provenance.end.changed_files_sha256,
+        "changed_files_limit": provenance.end.changed_files_limit,
+        "changed_file_path_max_bytes": provenance.end.changed_file_path_max_bytes,
     }
 
 
@@ -523,6 +539,28 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
         errors.append(f"receipt_type must be {RECEIPT_TYPE}")
     if data.get("verdict") not in RECEIPT_VERDICTS:
         errors.append("verdict has an unsupported value")
+    repository = data.get("repository")
+    if isinstance(repository, dict):
+        for key in (
+            "changed_files_total",
+            "changed_files_recorded",
+            "changed_files_limit",
+            "changed_file_path_max_bytes",
+        ):
+            value = repository.get(key)
+            if value is not None and (not isinstance(value, int) or value < 0):
+                errors.append(f"repository.{key} must be a non-negative integer when supplied")
+        for key in (
+            "changed_files_truncated",
+            "changed_files_overflow",
+            "changed_files_path_overflow",
+        ):
+            value = repository.get(key)
+            if value is not None and not isinstance(value, bool):
+                errors.append(f"repository.{key} must be a boolean when supplied")
+        digest = repository.get("changed_files_sha256")
+        if digest is not None and (not isinstance(digest, str) or not HASH_RE.fullmatch(digest)):
+            errors.append("repository.changed_files_sha256 must be a lowercase SHA-256 hash")
     trace = data.get("trace")
     if (
         not isinstance(trace, dict)
@@ -615,6 +653,11 @@ def render_receipt(receipt: CodexMaintenanceReceipt) -> str:
         f"- Branch: `{data['repository'].get('branch') or 'unknown'}`",
         f"- Dirty: `{data['repository'].get('dirty')}`",
         f"- Changed files: `{data['repository'].get('changed_files', [])}`",
+        f"- Changed-file count: `{data['repository'].get('changed_files_recorded', 0)}` recorded "
+        f"of `{data['repository'].get('changed_files_total', 0)}` total; "
+        f"truncated `{data['repository'].get('changed_files_truncated', False)}`",
+        "- Changed-file digest: "
+        f"`{data['repository'].get('changed_files_sha256') or 'not available'}`",
         "",
         "## Baseline and verification",
         "",

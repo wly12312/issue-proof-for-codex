@@ -57,9 +57,43 @@
         "dirty": {"type": ["boolean", "null"]},
         "worktree_path": {"type": "string"},
         "common_git_dir_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-        "start": {"type": ["object", "null"]},
-        "end": {"type": ["object", "null"]},
-        "changed_files": {"type": "array", "items": {"type": "string"}}
+        "start": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "properties": {
+            "changed_files_total": {"type": "integer", "minimum": 0},
+            "changed_files_recorded": {"type": "integer", "minimum": 0},
+            "changed_files_truncated": {"type": "boolean"},
+            "changed_files_overflow": {"type": "boolean"},
+            "changed_files_path_overflow": {"type": "boolean"},
+            "changed_files_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "changed_files_limit": {"type": "integer", "minimum": 0},
+            "changed_file_path_max_bytes": {"type": "integer", "minimum": 0}
+          }
+        },
+        "end": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "properties": {
+            "changed_files_total": {"type": "integer", "minimum": 0},
+            "changed_files_recorded": {"type": "integer", "minimum": 0},
+            "changed_files_truncated": {"type": "boolean"},
+            "changed_files_overflow": {"type": "boolean"},
+            "changed_files_path_overflow": {"type": "boolean"},
+            "changed_files_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "changed_files_limit": {"type": "integer", "minimum": 0},
+            "changed_file_path_max_bytes": {"type": "integer", "minimum": 0}
+          }
+        },
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "changed_files_total": {"type": "integer", "minimum": 0},
+        "changed_files_recorded": {"type": "integer", "minimum": 0},
+        "changed_files_truncated": {"type": "boolean"},
+        "changed_files_overflow": {"type": "boolean"},
+        "changed_files_path_overflow": {"type": "boolean"},
+        "changed_files_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "changed_files_limit": {"type": ["integer", "null"], "minimum": 0},
+        "changed_file_path_max_bytes": {"type": ["integer", "null"], "minimum": 0}
       }
     },
     "issue": {"type": "object", "additionalProperties": true},

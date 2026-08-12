@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from issue_proof.codex.git_provenance import MAX_CHANGED_FILES
 from issue_proof.codex.parser import parse_trace
 from issue_proof.codex.receipt import (
     RECEIPT_SCHEMA_VERSION,
@@ -59,3 +60,26 @@ def test_receipt_redacts_absolute_execution_paths(tmp_path) -> None:
     assert execution["cwd"] == "<absolute-path>"
     assert execution["argv"][0] == "<absolute-path>"
     assert "C:\\Users\\person" not in receipt.to_json()
+
+
+def test_receipt_limits_changed_files_and_keeps_complete_digest(tmp_path) -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    total = MAX_CHANGED_FILES + 17
+    for index in range(total):
+        (tmp_path / f"changed-{index:04d}.txt").write_text("change", encoding="utf-8")
+    trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-b.jsonl"
+
+    receipt = build_receipt(parse_trace(trace), repo_root=tmp_path)
+    data = receipt.as_dict()
+    repository = data["repository"]
+
+    assert repository["changed_files_total"] == total
+    assert repository["changed_files_recorded"] == MAX_CHANGED_FILES
+    assert repository["changed_files_truncated"] is True
+    assert repository["changed_files_overflow"] is True
+    assert len(repository["changed_files_sha256"]) == 64
+    assert any("entry limit" in warning for warning in data["warnings"])
+    assert "changed-0319.txt" not in "\n".join(data["warnings"])
+    assert len(receipt.to_json().encode("utf-8")) < 100_000

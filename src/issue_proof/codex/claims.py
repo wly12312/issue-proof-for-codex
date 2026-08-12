@@ -217,6 +217,15 @@ def _status_for_commands(commands: list[dict[str, Any]]) -> tuple[str, str]:
     return "unverified", "Cited command evidence conflicts between zero and non-zero exits."
 
 
+def _changed_files_are_incomplete(end_git: dict[str, Any]) -> bool:
+    return (
+        end_git.get("captured") is False
+        or bool(end_git.get("changed_files_truncated"))
+        or bool(end_git.get("changed_files_overflow"))
+        or bool(end_git.get("changed_files_path_overflow"))
+    )
+
+
 def verify_claims(
     inputs: Iterable[Claim | dict[str, Any]],
     evidence: dict[str, Any],
@@ -304,6 +313,13 @@ def verify_claims(
             else:
                 claim.status, claim.reason = "unverified", "Independent verification is incomplete."
         elif claim.type == "no-source-changes":
+            if _changed_files_are_incomplete(end_git):
+                claim.status, claim.reason = (
+                    "unverified",
+                    "Git changed-file evidence was truncated or unavailable; an empty list "
+                    "cannot prove that no source changed.",
+                )
+                continue
             changed = end_git.get("changed_files", []) if isinstance(end_git, dict) else []
             if isinstance(changed, list) and not changed:
                 claim.status, claim.reason = (
@@ -321,6 +337,13 @@ def verify_claims(
                     "Git changed-file evidence is unavailable.",
                 )
         elif claim.type == "files-changed":
+            if _changed_files_are_incomplete(end_git):
+                claim.status, claim.reason = (
+                    "unverified",
+                    "Git changed-file evidence was truncated or unavailable; expected files "
+                    "cannot be compared to a complete set.",
+                )
+                continue
             actual: set[str] = set()
             if isinstance(end_git, dict) and isinstance(end_git.get("changed_files"), list):
                 actual.update(str(item).replace("\\", "/") for item in end_git["changed_files"])

@@ -39,7 +39,7 @@ description: Use when a maintainer asks Codex to reproduce an open-source issue,
    `unverified`, not success.
 7. Create and inspect the JSON and Markdown `CodexMaintenanceReceipt`. Use explicit JSON/YAML claims
    when a maintainer needs tests-passed, lint-passed, build-passed, files-changed, no-source-changes,
-   bug-reproduced, or fix-verified assertions. Read [receipt-model.md](../../docs/receipt-model.md)
+   bug-reproduced, or fix-verified assertions. Read [receipt-model.md](references/receipt-model.md)
    and [evidence-model.md](references/evidence-model.md) for evidence IDs and migration rules.
 8. Treat a final assistant message as a narrative. Optional heuristic extraction is labeled heuristic
    and cannot replace command, Git, baseline, or verification evidence.
@@ -49,6 +49,9 @@ description: Use when a maintainer asks Codex to reproduce an open-source issue,
     label or close Issues, create PRs, publish, or push. Receipts are drafts for maintainer review.
 
 ## Codex provenance command
+
+Install the `issue-proof` CLI in the active environment before running the commands below. The
+bundled Skill script delegates to that installed CLI and does not load repository source by path.
 
 For a changed path, inspect repository-scoped instructions without reading Codex home/history:
 

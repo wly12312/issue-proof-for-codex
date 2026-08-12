@@ -13,6 +13,8 @@
     "developerName": "oss-issue-proof contributors",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "Help me reproduce an OSS issue, import a Codex trace, independently verify the fix, and draft a maintenance receipt."
+    "defaultPrompt": [
+      "Help me reproduce an OSS issue, import a Codex trace, independently verify the fix, and draft a maintenance receipt."
+    ]
   }
 }
