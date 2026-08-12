@@ -50,7 +50,9 @@ def safe_output_file(output_dir: Path, relative_name: str) -> Path:
     """Resolve a child output path and reject traversal, absolute paths, and symlink escapes."""
 
     candidate_name = Path(relative_name)
-    windows_absolute = bool(re.match(r"^(?:[A-Za-z]:[\\/]|[\\]{2})", relative_name))
+    # A single leading backslash is rooted on Windows even without a drive;
+    # reject it here because POSIX Path does not classify it as absolute.
+    windows_absolute = bool(re.match(r"^(?:[A-Za-z]:|[\\/])", relative_name))
     if candidate_name.is_absolute() or windows_absolute or ".." in candidate_name.parts:
         raise OutputPathError(f"output file must stay inside the output directory: {relative_name}")
     root = output_dir.resolve()

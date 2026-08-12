@@ -11,6 +11,8 @@ def test_output_path_rejects_traversal_and_windows_absolute(tmp_path) -> None:
     with pytest.raises(OutputPathError):
         safe_output_file(root, r"C:\outside.txt")
     with pytest.raises(OutputPathError):
+        safe_output_file(root, r"C:relative.txt")
+    with pytest.raises(OutputPathError):
         safe_output_file(root, r"\server\share\outside.txt")
     target = safe_output_file(root, "nested/report.json")
     assert target.parent == root / "nested"
