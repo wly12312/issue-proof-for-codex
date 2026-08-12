@@ -1,32 +1,33 @@
-# Adoption plan
+# Adoption evidence policy
 
-This plan records whether the Codex maintenance receipt is useful without inventing usage data or
-uploading user evidence.
+## Support boundary
 
-## Staged route
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
 
-1. Dogfood on this repository's own Issues. Attach local receipts to development notes only after
-   sanitization and explicit review.
-2. Ask a small number of active OSS projects for permission to trial one or two Codex-assisted
-   maintenance issues. Provide a local-only workflow and let each maintainer keep or delete the
-   bundle.
-3. Compare the workflow with ordinary triage, a human-only fix, and any existing agent process.
-   Record limitations, false confidence, and time saved, not marketing claims.
+The project has no telemetry and does not infer adoption. Any adoption report must be voluntarily
+submitted by an authorized maintainer and must describe an actual run in a supported environment.
 
-## Metrics and collection
+## Permitted aggregate observations
 
-| Metric | Definition | Collection method | Default privacy behavior |
-| --- | --- | --- | --- |
-| Receipts generated | Count of locally generated receipts | Maintainer aggregate or fixture audit | Never upload raw receipts by default |
-| Repositories adopting | Distinct repositories that voluntarily run the workflow | Maintainer-maintained local count | Hash or coarse-label identities if shared |
-| Claims supported/unverified/refuted | Counts by receipt claim status | Recompute from reviewed receipt JSON | No telemetry or hidden collection |
-| Bugs reproduced before fix | Receipts with a supported `bug-reproduced` claim | Local receipt review | Keep Issue content out of aggregate logs |
-| Fixes independently verified | Receipts with supported `fix-verified` and verified verdict | Local receipt review | Do not infer causality |
-| Maintainer review time saved | Voluntary before/after estimate | Coarse local time log | Never require personal data |
-| External Issues, PRs, contributors | Accepted public contributions and fixtures | Git history and project records | Do not infer identity from evidence |
-| Release/adoption cadence | Time between tagged releases or review checkpoints | Maintainer notes | No automated upload |
+An authorized report may include reviewed, non-identifying counts such as:
 
-These are realistic OSS operating indicators, not official Codex, OpenAI, or program eligibility
-criteria. Thresholds should be chosen after several reviewed trials; no threshold is claimed here.
+- locally generated receipts;
+- reproduced, not-reproduced, verified, refuted, unverified, or inconclusive outcomes;
+- supported, refuted, or unverified claim counts;
+- coarse, voluntarily recorded review time;
+- public contributions already visible in repository history.
 
-Any future telemetry would require explicit opt-in, documentation, and a separate privacy review.
+Do not estimate missing values or turn a synthetic fixture into adoption evidence. Do not infer
+repository identities, users, success rates, or time savings from private receipts or local files.
+
+## Privacy requirements
+
+Do not upload raw receipts by default. Never submit credentials, private Issue bodies, raw traces,
+private repository URLs, prompts, assistant transcripts, environment dumps, or personal data.
+Prefer coarse aggregate counts and state exactly how they were calculated. A maintainer must review
+every value before publication.
+
+The repository's synthetic examples are validation fixtures only. They are not user studies,
+production runs, or evidence of adoption.

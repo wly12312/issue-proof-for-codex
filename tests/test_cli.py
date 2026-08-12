@@ -1,7 +1,10 @@
 import subprocess
 import sys
 
-from issue_proof.cli import main
+import pytest
+
+from issue_proof.cli import _load_command_argv, main
+from issue_proof.errors import IssueProofError
 
 
 def python_command(code: str) -> str:
@@ -73,6 +76,14 @@ def test_cli_bad_command_has_usage_exit_code(tmp_path) -> None:
         )
         == 2
     )
+
+
+def test_command_argv_json_rejects_nul(tmp_path) -> None:
+    command = tmp_path / "command-argv.json"
+    command.write_text('{"argv":["bad\\u0000executable"]}', encoding="utf-8")
+
+    with pytest.raises(IssueProofError, match="NUL"):
+        _load_command_argv(command)
 
 
 def test_doctor_help_path(capsys) -> None:

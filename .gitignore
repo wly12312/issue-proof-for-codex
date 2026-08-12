@@ -32,6 +32,7 @@ pip-wheel-metadata/
 .env
 .env.*
 !.env.example
+.envrc
 *.local
 *.local.*
 *.pem
@@ -48,14 +49,13 @@ Thumbs.db
 desktop.ini
 
 # Real local runs: evidence, receipts, traces, and logs.
-# Keep the checked-in, sanitized fixtures under examples/ and tests/ tracked;
-# do not use a blanket *.jsonl or *.json ignore.
+# Ignore JSONL by default; only the two reviewed synthetic fixtures are allowed.
 .issue-proof/
 logs/
 *.log
-codex-run*.jsonl
-codex-trace*.jsonl
-*.codex-trace.jsonl
+*.jsonl
+!examples/codex-maintenance/trace-order-a.jsonl
+!examples/codex-maintenance/trace-order-b.jsonl
 receipts/
 evidence/
 /receipt.json

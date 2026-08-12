@@ -1,40 +1,44 @@
 # Evidence model
 
-`report.json` is the machine-readable contract. `report.md` is a deterministic rendering of the
-same data. Both are produced locally and should be attached or reviewed as a pair.
+## Support boundary
 
-## Required sections
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
 
-- `schema_version`, `tool_version`, `run_id`, and timezone-aware `created_at` identify the contract
-  and run.
-- `issue` records `local-file` or `github-url`, a redacted location, title, a SHA-256 hash of the
-  sanitized normalized body, and a bounded sanitized excerpt. It does not preserve the raw Issue.
-- `repository` records the resolved root, redacted origin URL, HEAD SHA, branch, and dirty state.
-- `runtime` records OS, architecture, and selected versions for Python, Node, Rust, or Java when
-  the executable is present. It does not dump environment variables.
-- `execution` records sanitized argv and display command, cwd, ISO timestamps, duration, exit
-  code, timeout state, and bounded stdout/stderr summaries with SHA-256, byte count, truncation,
-  and redaction flags.
-- `artifacts` contains relative output paths and SHA-256 hashes. The collector currently includes a
-  sanitized `issue-source.md` snapshot; it does not scan the repository or copy source files.
-- `reproduction.outcome` is `reproduced`, `not-reproduced`, `inconclusive`, or `not-run`.
-- `verification.outcome` is `verified`, `not-fixed`, `inconclusive`, or `not-applicable`.
-- `warnings`, `security_events`, and `notes` preserve limitations and human context.
+`report.json` is the machine-readable generic report. `report.md` is a deterministic rendering of
+the same report fields. Both are generated locally under an explicit output directory.
+
+## Generic report sections
+
+- `schema_version`, `tool_version`, `run_id`, and `created_at` identify the contract and run.
+- `issue` records the selected local file or GitHub URL, sanitized location/title/excerpt, and a
+  digest of the sanitized normalized body. It does not preserve the raw Issue.
+- `repository` records the resolved root, redacted origin, HEAD, branch, and dirty state.
+- `runtime` records Windows, architecture, Python, and selected installed runtime versions without
+  dumping environment variables.
+- `execution` records sanitized argv/display/cwd, times, duration, exit code, timeout state, and
+  bounded stdout/stderr summaries and digests.
+- `artifacts` records relative IssueProof-generated paths and SHA-256 values. The collector may
+  include a sanitized `issue-source.md`; it does not scan or copy repository source.
+- `reproduction`, `verification`, `warnings`, `security_events`, and `notes` preserve the observed
+  outcome and limitations.
 
 ## Outcome semantics
 
-Collection classifies one explicitly supplied completed command: non-zero is `reproduced`, zero is
-`not-reproduced`, timeout is `inconclusive`, and no command is `not-run`. This is a single-run
-observation, not a claim that the failure is deterministic.
+For a completed baseline command, non-zero is `reproduced` and zero is `not-reproduced`. A timeout
+is `inconclusive`; no command is `not-run`. This is a single-run observation, not proof of stability
+or causality.
 
-Verification is conservative. It requires a baseline with `reproduced`, a completed baseline with
-an exit code, matching sanitized argv, and a completed current command. A current zero exit is
-`verified`; a current non-zero exit is `not-fixed`; all other comparisons are `inconclusive`.
-Verification reports the baseline run ID and stability note so maintainers can request repeated
-runs when flakiness matters.
+Verification is conservative. It requires baseline `reproduced`, a completed non-zero baseline,
+matching argv, and a completed current command. A current zero exit is `verified`; a current
+non-zero exit is `not-fixed`; missing, mismatched, or timeout evidence is `inconclusive`.
 
-## Hashing and rendering
+The first argv item must identify a non-empty executable. Later items may be empty strings when the
+Windows target program requires an explicit empty argument.
 
-All hashes are lowercase SHA-256. Field order and Markdown section order are stable. Timestamps are
-ISO 8601 with UTC `Z`. Output is sanitized before hashing and persistence, so a hash identifies the
-stored sanitized summary, not an unrecoverable secret-bearing stream.
+## Privacy and hashes
+
+SHA-256 values are lowercase. Output is sanitized before persistence and hashing, so a stream digest
+identifies the stored sanitized summary rather than an original secret-bearing stream. Pattern
+redaction and bounded summaries reduce disclosure risk but do not replace review.

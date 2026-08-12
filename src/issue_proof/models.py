@@ -421,7 +421,7 @@ def validate_report_dict(data: dict[str, Any]) -> None:
                 not isinstance(artifact_path, str)
                 or Path(artifact_path).is_absolute()
                 or ".." in Path(artifact_path).parts
-                or re.match(r"^(?:[A-Za-z]:[\\/]|[\\]{2})", artifact_path)
+                or re.match(r"^(?:[A-Za-z]:|[\\/])", artifact_path)
             ):
                 errors.append(f"artifacts[{index}].path must be relative")
             if not isinstance(artifact.get("sha256"), str) or not HASH_RE.fullmatch(

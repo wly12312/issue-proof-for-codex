@@ -111,3 +111,44 @@ def test_changed_file_digest_is_stable_for_unicode_paths(tmp_path, monkeypatch) 
     assert first.files == sorted(paths)
     assert first.sha256 == second.sha256
     assert first.sha256 == git_provenance._digest_changed_files(sorted(paths))
+
+
+def test_changed_files_preserve_real_windows_unicode_path(tmp_path) -> None:
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    unicode_path = "变更说明.txt"
+    (tmp_path / unicode_path).write_text("change", encoding="utf-8")
+
+    capture, error = _changed_files(tmp_path)
+
+    assert error is None
+    assert capture is not None
+    assert capture.files == [unicode_path]
+
+
+def test_changed_files_preserve_first_character_of_tracked_path(tmp_path) -> None:
+    path = tmp_path / "README.md"
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "fixture@example.invalid"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "Fixture"],
+        check=True,
+        capture_output=True,
+    )
+    path.write_text("before", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "README.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "fixture"],
+        check=True,
+        capture_output=True,
+    )
+    path.write_text("after", encoding="utf-8")
+
+    capture, error = _changed_files(tmp_path)
+
+    assert error is None
+    assert capture is not None
+    assert capture.files == ["README.md"]

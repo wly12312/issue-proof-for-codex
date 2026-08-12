@@ -364,11 +364,16 @@ def _load_command_argv(path: Path) -> list[str]:
     if (
         not isinstance(data, list)
         or not data
-        or not all(isinstance(item, str) and item for item in data)
+        or not isinstance(data[0], str)
+        or not data[0]
+        or not all(isinstance(item, str) for item in data)
     ):
         raise IssueProofError(
-            "--command-argv must contain a non-empty JSON string array", exit_code=2
+            "--command-argv must contain a JSON string array with a non-empty executable",
+            exit_code=2,
         )
+    if any("\x00" in item for item in data):
+        raise IssueProofError("--command-argv must not contain NUL bytes", exit_code=2)
     return list(data)
 
 

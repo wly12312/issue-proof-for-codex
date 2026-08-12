@@ -1,40 +1,45 @@
 # CodexMaintenanceReceipt model
 
-`CodexMaintenanceReceipt` is a standalone versioned object. It can also be embedded as the optional
-`codex` object in the existing `issue-proof` report; the generic report's required fields and
-`schema_version: 1.0.0` remain unchanged.
+## Support boundary
+
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
+
+`CodexMaintenanceReceipt` is a standalone, versioned, redacted record. The generic report keeps
+`schema_version: 1.0.0` and may carry an optional `codex` object; a standalone receipt has its own
+`receipt_schema_version` and Draft 2020-12 repository schema.
 
 ## Top-level sections
 
-| Section | Evidence carried | Privacy rule |
+| Section | Evidence | Important boundary |
 | --- | --- | --- |
-| `receipt_schema_version`, `receipt_type`, `tool_version` | Contract and producer identity | No hidden runtime state |
-| `codex` | observed CLI/app version, task/session IDs, source trace SHA-256, adapter status | IDs are null when absent; raw trace is false by default |
-| `repository` | safe root representation, redacted remote, HEAD/branch/dirty, worktree and common-dir digest, start/end state, bounded changed files, total/recorded counts, truncation flags, and a complete-set digest | no full home path or common Git directory; a truncated path list is never treated as complete |
-| `issue` | URL/number/local location and body hash when provided | no full Issue body by default |
-| `baseline` | reproduction outcome, report ID, command evidence, stability | absent baseline cannot support a fix claim |
-| `commands` | safe argv/display/cwd, exit, duration, timeout, bounded stream summaries | output is redacted and size bounded |
-| `verification` | independent outcome and relation to baseline/argv | uses explicit command evidence only |
-| `agents` | relative path/hash/size/scope/readability and warnings | full content only with explicit opt-in and redaction |
-| `trace` | filename, digest, line/event counts, unknown count, message mode | no raw JSONL |
-| `evidence` | stable IDs and short conclusions | every claim points to these IDs |
-| `claims` | supported/refuted/unverified/not-applicable status and reason | missing evidence is unverified, not refuted |
-| `warnings`, `redactions`, `unknown_events`, `parse_errors` | downgrade context | never silently discard uncertainty |
-| `verdict` | verified/partially-verified/unverified/refuted/inconclusive | conservative summary, not a causal proof |
+| `receipt_schema_version`, `receipt_type`, `tool_version` | Contract and producer identity | Not a package or release attestation |
+| `codex` | Observed CLI/app versions, task/session IDs, trace digest, adapter status | Raw trace is not persisted |
+| `repository` | Safe root, redacted remote, adjacent receipt-time Git snapshots, changed-file counts/list/digest | These snapshots are not the maintenance command's before/after state; a truncated list is incomplete |
+| `issue` | Supplied URL/number or local Issue metadata | Full Issue body is not stored in the receipt |
+| `baseline` | Reproduction outcome, report ID, command evidence, stability | Missing or invalid baseline cannot support a fix claim |
+| `commands` | Sanitized argv, display, cwd, exit, timeout, bounded streams | Explicit commands are not sandboxed |
+| `verification` | Outcome and relation to baseline/argv | Must be backed by independent execution evidence |
+| `agents` | Relative paths, hashes, sizes, scopes, readability, warnings | Content requires explicit opt-in |
+| `trace` | Filename, digest, counts, limit and message mode | Unknown events are not positive evidence |
+| `evidence` | Stable IDs and bounded summaries | Claims may cite only available IDs |
+| `claims` | Supported, refuted, unverified, or not-applicable conclusions | Narrative alone cannot support a claim |
+| `warnings`, `redactions`, `unknown_events`, `parse_errors` | Uncertainty and privacy context | Parse errors or event-limit truncation make the verdict inconclusive |
+| `verdict` | Conservative receipt summary | Not proof of causality or overall code safety |
 
-The object intentionally contains no full prompt, assistant transcript, hidden reasoning, environment
-dump, model token usage, Codex config, home history, or private app database content.
-
-Changed-file provenance uses a conservative entry and per-path byte limit. The receipt retains the
-complete normalized path-stream SHA-256, total count, recorded count, and overflow/truncation flags;
-warnings describe the omission without including omitted paths. Claims that require a complete
-changed-file set remain `unverified` when truncation occurs.
+IssueProof does not actively import a full prompt, hidden reasoning, structured environment dump,
+Codex configuration, home history, or private application databases. Explicit command or trace
+output can still contain environment content. Assistant messages are omitted unless explicitly
+requested and are always treated as narrative.
 
 ## Evidence IDs and claims
 
-Stable IDs include `trace`, `event-000001`, `command-0001`, `baseline-reproduction`,
-`verification`, `git-start`, `git-end`, `trace-files`, and `agents-0001`. An explicit claims JSON or
-small YAML file names the claim type and optional evidence IDs. Supported types are:
+Stable receipt-generated IDs include `trace`, `event-000001`, command IDs,
+`baseline-reproduction`, `verification`, `verification-command`, `git-start`, `git-end`,
+`trace-files`, and `agents-0001`.
+
+Supported explicit claim types are:
 
 - `bug-reproduced`
 - `tests-passed`
@@ -44,15 +49,26 @@ small YAML file names the claim type and optional evidence IDs. Supported types 
 - `no-source-changes`
 - `files-changed`
 
-Tests/lint/build are supported only by completed cited commands with exit code zero. `fix-verified`
-requires baseline `reproduced`, the same argv, non-timeout execution, and verification exit zero.
-`files-changed` compares expected files with Git/trace evidence. A missing, corrupt, or conflicting
-piece of evidence yields `unverified`; it is never converted into a negative finding. Optional final
-message extraction is heuristic, labeled, and never an LLM or paid API call.
+Tests, lint, and build claims require completed cited command evidence with exit code zero. A cited
+command set containing incomplete evidence remains unverified. `fix-verified` requires baseline
+`reproduced`, the same argv, non-timeout execution, and verification exit code zero. Missing,
+conflicting, corrupt, or incomplete evidence yields `unverified` or `inconclusive`, not success.
 
-## Migration and compatibility
+Changed-file provenance retains a bounded normalized list, total and recorded counts, overflow and
+truncation flags, and a digest of the complete normalized path stream when available. Claims that
+require a complete changed-file set remain unverified if the set is incomplete.
 
-Old reports load without a `codex` key. New generic reports may add that optional object without
-changing the required report schema. Standalone receipts have their own schema file and version.
-Future incompatible receipt changes must add a migration or a new schema version; the loader rejects
-unknown versions instead of silently interpreting them.
+The two Git snapshots are captured back-to-back while constructing the receipt. They describe the
+checkout at capture time; they do not establish which files a prior Codex or verification command
+changed. Record true task-start provenance separately when attribution matters.
+
+## Validation and compatibility
+
+Receipt generation runs the package's receipt validator before writing output. The repository's
+`schemas\codex-maintenance-receipt.schema.json` describes the standalone JSON contract for external
+Draft 2020-12 validation. The `issue-proof validate` CLI command validates generic `report.json`, not
+a standalone receipt.
+
+Old generic reports without a `codex` key continue to load under schema `1.0.0`. An incompatible
+future receipt shape would require an explicit migration or a new receipt schema version; it must
+not be silently interpreted as the existing contract.

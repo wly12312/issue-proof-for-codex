@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -24,7 +25,9 @@ class ParseLimits:
     max_events: int = 50_000
 
 
-_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:|[\\/])")
+_MAX_JSON_DEPTH = 128
+_MAX_JSON_INTEGER_DIGITS = 4_096
 _EVENT_KINDS = {
     "thread.started": "session",
     "session.started": "session",
@@ -112,9 +115,7 @@ def _safe_path(value: Any, redactions: list[str]) -> str:
     if not text:
         return ""
     if _ABSOLUTE_WINDOWS.match(text) or text.startswith("/"):
-        parts = [part for part in re.split(r"[\\/]", text) if part]
-        tail = "/".join(parts[-2:]) if parts else "path"
-        return f"<absolute-path>/{tail}"
+        return "<absolute-path>"
     return text.replace("\\", "/")
 
 
@@ -134,6 +135,74 @@ def _number_field(payload: dict[str, Any], *names: str) -> int | float | None:
         if isinstance(value, (int, float)):
             return value
     return None
+
+
+def _integer_field(payload: dict[str, Any], *names: str) -> int | None:
+    for name in names:
+        value = payload.get(name)
+        if type(value) is int:
+            return value
+    return None
+
+
+def _bounded_json_int(value: str) -> int:
+    digits = value[1:] if value.startswith("-") else value
+    if len(digits) > _MAX_JSON_INTEGER_DIGITS:
+        raise ValueError("JSON integer exceeded the configured safety bound")
+    return int(value)
+
+
+def _finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON floating-point value was not finite")
+    return number
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
+def _validate_json_value(value: Any) -> None:
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > _MAX_JSON_DEPTH:
+            raise ValueError("JSON nesting exceeded the configured safety bound")
+        if isinstance(item, str):
+            if any(0xD800 <= ord(char) <= 0xDFFF for char in item):
+                raise ValueError("JSON string contained an isolated surrogate")
+        elif isinstance(item, dict):
+            pending.extend((key, depth + 1) for key in item)
+            pending.extend((nested, depth + 1) for nested in item.values())
+        elif isinstance(item, list):
+            pending.extend((nested, depth + 1) for nested in item)
+
+
+class _InvalidRecordError(ValueError):
+    pass
+
+
+def _validate_command_numbers(record: dict[str, Any]) -> None:
+    outer, item_type, payload = _event_parts(record)
+    if _EVENT_KINDS.get(item_type, _EVENT_KINDS.get(outer)) != "command":
+        return
+    for name in ("exit_code", "exitCode", "returncode"):
+        value = payload.get(name)
+        if name in payload and value is not None and type(value) is not int:
+            raise _InvalidRecordError("command exit code was not an integer")
+    for name in ("duration_ms", "duration_seconds", "duration"):
+        value = payload.get(name)
+        if name not in payload or value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise _InvalidRecordError("command duration was not numeric")
+        try:
+            finite = math.isfinite(value)
+        except OverflowError as exc:
+            raise _InvalidRecordError("command duration was outside the finite range") from exc
+        if not finite or value < 0:
+            raise _InvalidRecordError("command duration was not finite and non-negative")
 
 
 def _event_parts(record: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
@@ -250,7 +319,7 @@ def _handle_record(
             command = " ".join(argv)
         safe_command, _ = _safe_text(command or "", 4_096, redactions, "command")
         cwd = _safe_path(payload.get("cwd"), redactions)
-        exit_code = _number_field(payload, "exit_code", "exitCode", "returncode")
+        exit_code = _integer_field(payload, "exit_code", "exitCode", "returncode")
         duration = _number_field(payload, "duration_ms", "duration_seconds", "duration")
         if "duration_ms" in payload and isinstance(duration, (int, float)):
             duration = round(float(duration) / 1000, 6)
@@ -276,9 +345,7 @@ def _handle_record(
             "argv": argv,
             "display_command": safe_command,
             "cwd": cwd or None,
-            "exit_code": int(exit_code)
-            if isinstance(exit_code, float) and exit_code.is_integer()
-            else exit_code,
+            "exit_code": exit_code,
             "duration_seconds": duration,
             "timed_out": bool(payload.get("timed_out", False) or payload.get("timeout", False)),
             "status": _safe_text(
@@ -488,7 +555,13 @@ def parse_trace(
                 continue
             try:
                 decoded = raw_line.decode("utf-8")
-                record = json.loads(decoded)
+                record = json.loads(
+                    decoded,
+                    parse_constant=_reject_json_constant,
+                    parse_float=_finite_json_float,
+                    parse_int=_bounded_json_int,
+                )
+                _validate_json_value(record)
             except UnicodeDecodeError as exc:
                 error = {"line": line_number, "kind": "invalid-utf8", "message": "invalid UTF-8"}
                 summary.parse_errors.append(error)
@@ -497,7 +570,7 @@ def parse_trace(
                     summary.source_trace_sha256 = digest.hexdigest()
                     raise TraceParseError(error["message"]) from exc
                 continue
-            except json.JSONDecodeError as exc:
+            except (ValueError, RecursionError) as exc:
                 error = {"line": line_number, "kind": "invalid-json", "message": "invalid JSON"}
                 summary.parse_errors.append(error)
                 summary.warnings.append(f"trace line {line_number} was not valid JSON")
@@ -516,6 +589,20 @@ def parse_trace(
                 if strict:
                     summary.source_trace_sha256 = digest.hexdigest()
                     raise TraceParseError(error["message"])
+                continue
+            try:
+                _validate_command_numbers(record)
+            except _InvalidRecordError as exc:
+                error = {
+                    "line": line_number,
+                    "kind": "invalid-record",
+                    "message": "invalid event record",
+                }
+                summary.parse_errors.append(error)
+                summary.warnings.append(f"trace line {line_number} contained invalid event data")
+                if strict:
+                    summary.source_trace_sha256 = digest.hexdigest()
+                    raise TraceParseError(error["message"]) from exc
                 continue
             if summary.valid_events >= selected.max_events:
                 summary.event_limit_reached = True

@@ -6,6 +6,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -33,9 +34,17 @@ def _is_within(root: Path, candidate: Path) -> bool:
     return True
 
 
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        attributes = path.lstat().st_file_attributes
+    except (AttributeError, OSError):
+        return path.is_symlink()
+    return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def ensure_output_dir(path: Path) -> Path:
-    if path.exists() and path.is_symlink():
-        raise OutputPathError(f"output directory must not be a symbolic link: {path}")
+    if (path.exists() or path.is_symlink()) and _is_reparse_point(path):
+        raise OutputPathError(f"output directory must not be a reparse point: {path}")
     try:
         path.mkdir(parents=True, exist_ok=True)
         resolved = path.resolve()
@@ -62,8 +71,8 @@ def safe_output_file(output_dir: Path, relative_name: str) -> Path:
     existing = root
     for part in candidate.relative_to(root).parts:
         existing = existing / part
-        if existing.is_symlink():
-            raise OutputPathError(f"output path contains a symbolic link: {relative_name}")
+        if (existing.exists() or existing.is_symlink()) and _is_reparse_point(existing):
+            raise OutputPathError(f"output path contains a reparse point: {relative_name}")
     return candidate
 
 
@@ -124,7 +133,11 @@ def inspect_repository(repo_root: Path) -> tuple[RepositoryInfo, list[str]]:
     if code != 0 or not git_root:
         warnings.append("repository is not a Git worktree; Git revision fields are unavailable")
         return RepositoryInfo(
-            root=str(root), remote_url=None, head_sha=None, branch=None, dirty=None
+            root=redact_text(str(root)).text,
+            remote_url=None,
+            head_sha=None,
+            branch=None,
+            dirty=None,
         ), warnings
     actual_root = Path(git_root).resolve()
     _, head, head_err = _git_command(["rev-parse", "HEAD"], actual_root)
@@ -313,7 +326,7 @@ def collect_evidence(
     ]
     if command is not None:
         argv = parse_command(command)
-        result = execute_argv(argv, cwd=Path(repository.root), limits=selected_limits)
+        result = execute_argv(argv, cwd=repo_root.resolve(), limits=selected_limits)
         execution = _execution_info(result)
         execution_warnings, execution_security = _warnings_for_execution(execution)
         warnings.extend(execution_warnings)

@@ -1,29 +1,82 @@
 name: Bug report
-description: Report a reproducible problem in oss-issue-proof
+description: Report a reproducible issue in a supported Windows environment
 title: "bug: "
 labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Do not include tokens, private keys, or raw sensitive Issue content.
+      value: |
+        Officially supported: Windows 10/11.
+        Tested: Windows with Python 3.11, 3.12, and 3.14.
+        Linux/macOS: unsupported, untested, and unverified.
+
+        Do not include credentials, private keys, raw private Issue content, private repository
+        URLs, raw Codex traces, prompts, environment dumps, or unredacted logs.
   - type: input
     id: version
     attributes:
-      label: Version
-      description: Output of issue-proof --version
+      label: IssueProof version
+      description: Sanitized output of issue-proof --version.
+      placeholder: "0.1.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows_version
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: dropdown
+    id: python_version
+    attributes:
+      label: Python version
+      options:
+        - Python 3.14
+        - Python 3.12
+        - Python 3.11
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation type
+      options:
+        - GitHub Release wheel
+        - Source checkout
+        - Source distribution
+        - Standalone Skill with separately installed CLI
     validations:
       required: true
   - type: textarea
-    id: command
+    id: doctor
     attributes:
-      label: Explicit command
-      description: The sanitized command you supplied; do not paste Issue-suggested shell snippets.
+      label: Sanitized doctor output
+      description: Paste issue-proof doctor output after removing user-specific paths or private data.
+      render: text
     validations:
       required: true
   - type: textarea
-    id: evidence
+    id: reproduction
     attributes:
-      label: Evidence summary
-      description: Paste relevant sanitized report fields, not raw secrets.
+      label: Minimal PowerShell reproduction
+      description: Use a synthetic fixture and explicit sanitized paths. Do not paste commands copied from untrusted Issue text without review.
+      render: powershell
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Actual result
+      description: Include exit code and sanitized evidence fields. For permission-dependent symlink, reparse-point, or taskkill behavior, include the original Windows error.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: Describe the existing documented behavior that should have occurred.
     validations:
       required: true

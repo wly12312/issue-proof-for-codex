@@ -98,8 +98,9 @@ class GitProvenance:
 
 def _git(args: list[str], cwd: Path) -> tuple[int, str, str]:
     try:
+        git_args = ["-c", "core.quotepath=false", *args] if args[:1] == ["status"] else args
         result = subprocess.run(
-            ["git", *args],
+            ["git", *git_args],
             cwd=str(cwd),
             capture_output=True,
             check=False,
@@ -108,11 +109,10 @@ def _git(args: list[str], cwd: Path) -> tuple[int, str, str]:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return 127, "", exc.__class__.__name__
-    return (
-        result.returncode,
-        result.stdout.decode("utf-8", errors="replace").strip(),
-        result.stderr.decode("utf-8", errors="replace").strip(),
-    )
+    stdout = result.stdout.decode("utf-8", errors="replace")
+    if args[:1] != ["status"]:
+        stdout = stdout.strip()
+    return result.returncode, stdout, result.stderr.decode("utf-8", errors="replace").strip()
 
 
 def _digest_changed_files(paths: list[str]) -> str:

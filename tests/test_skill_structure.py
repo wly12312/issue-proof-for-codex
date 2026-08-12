@@ -9,6 +9,8 @@ from pathlib import Path
 
 import issue_proof
 
+EXPECTED_VERSION = "0.1.3"
+
 
 def test_skill_frontmatter_and_resources_follow_contract() -> None:
     root = Path(__file__).parents[1]
@@ -57,8 +59,6 @@ def test_skill_standalone_references_and_installed_cli_delegate(tmp_path) -> Non
     environment["PATH"] = os.pathsep.join(
         [str(Path(sys.executable).parent), environment.get("PATH", "")]
     )
-    executable = shutil.which("issue-proof", path=environment["PATH"])
-    assert executable, "the installed CLI is required for the standalone delegate test"
     environment.pop("PYTHONPATH", None)
     result = subprocess.run(
         [sys.executable, str(standalone_skill / "scripts" / "run_issue_proof.py"), "--version"],
@@ -69,13 +69,58 @@ def test_skill_standalone_references_and_installed_cli_delegate(tmp_path) -> Non
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "0.1.2"
+    assert result.stdout.strip() == EXPECTED_VERSION
     script = (standalone_skill / "scripts" / "run_issue_proof.py").read_text(encoding="utf-8")
     assert "sys.path" not in script
     assert ".parents" not in script
+    assert 'sys.executable, "-I", "-m", "issue_proof"' in script
+    assert "shutil.which" not in script
 
 
-def test_release_metadata_matches_current_v0_1_2_tag() -> None:
+def test_skill_delegate_uses_consumer_interpreter_when_cli_is_not_on_path(tmp_path) -> None:
+    root = Path(__file__).parents[1]
+    source_skill = root / "skills" / "reproduce-github-issue"
+    standalone_skill = tmp_path / "reproduce-github-issue"
+    shutil.copytree(source_skill, standalone_skill)
+    environment = os.environ.copy()
+    environment["PATH"] = ""
+    environment.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [sys.executable, str(standalone_skill / "scripts" / "run_issue_proof.py"), "--version"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == EXPECTED_VERSION
+
+
+def test_skill_delegate_does_not_execute_checkout_local_cli_lookalike(tmp_path) -> None:
+    root = Path(__file__).parents[1]
+    standalone_skill = tmp_path / "reproduce-github-issue"
+    shutil.copytree(root / "skills" / "reproduce-github-issue", standalone_skill)
+    shutil.copy2(sys.executable, tmp_path / "issue-proof.exe")
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [sys.executable, str(standalone_skill / "scripts" / "run_issue_proof.py"), "--version"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == EXPECTED_VERSION
+
+
+def test_release_metadata_matches_current_v0_1_3_tag() -> None:
     root = Path(__file__).parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     plugin = json.loads((root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
@@ -83,13 +128,60 @@ def test_release_metadata_matches_current_v0_1_2_tag() -> None:
     artifact = (root / ".github" / "workflows" / "codex-receipt-artifact.yml").read_text(
         encoding="utf-8"
     )
+    gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+    manifest = (root / "MANIFEST.in").read_text(encoding="utf-8")
 
-    assert project["project"]["version"] == "0.1.2"
-    assert issue_proof.__version__ == "0.1.2"
-    assert plugin["version"] == "0.1.2"
-    assert "runs-on: windows-latest" in ci
+    assert project["project"]["version"] == EXPECTED_VERSION
+    assert issue_proof.__version__ == EXPECTED_VERSION
+    assert plugin["version"] == EXPECTED_VERSION
+
+    assert "permissions:\n  contents: read\n\njobs:" in ci
     assert "python-version: ['3.11', '3.12', '3.14']" in ci
+    assert "runs-on: windows-latest" in ci
+    assert "defaults:\n      run:\n        shell: pwsh" in ci
+    assert ci.count("persist-credentials: false") == 1
+    assert "ruff format --check ." in ci
+    assert "ruff check ." in ci
+    assert "pytest --basetemp $baseTemp --cov=issue_proof --cov-report=term-missing" in ci
+    assert 'Join-Path $env:RUNNER_TEMP "Issue Proof 路径"' in ci
+    assert "python -m issue_proof codex doctor" in ci
+    assert "python -m build" in ci
     assert "ubuntu-latest" not in ci
+
+    assert "permissions:\n  contents: read\n  actions: read\n\njobs:" in artifact
     assert "runs-on: windows-latest" in artifact
+    assert "defaults:\n      run:\n        shell: pwsh" in artifact
+    assert artifact.count("persist-credentials: false") == 1
     assert "shell: pwsh" in artifact
     assert "shell: bash" not in artifact
+    assert "$GITHUB_OUTPUT" not in artifact
+    assert "$env:GITHUB_OUTPUT" in artifact
+    forbidden_run = re.compile(
+        r"(?m)^\s*-\s+run:\s+(?:bash|find|test)\b|^\s{10}(?:bash|find|test)(?:\s|$)"
+    )
+    assert forbidden_run.search(ci) is None
+    assert forbidden_run.search(artifact) is None
+    assert "$traces.Count -ne 1" in artifact
+    assert "$reports.Count -ne 1" in artifact
+    assert "Select-Object -First 1" not in artifact
+    assert "TRACE_PATH: ${{ steps.trace.outputs.path }}" in artifact
+    assert "BASELINE_PATH: ${{ steps.baseline.outputs.path }}" in artifact
+    assert '--trace "$env:TRACE_PATH"' in artifact
+    assert '--baseline "$env:BASELINE_PATH"' in artifact
+    assert '--trace "${{ steps.trace.outputs.path }}"' not in artifact
+    assert '--baseline "${{ steps.baseline.outputs.path }}"' not in artifact
+    assert "include-hidden-files: true" in artifact
+
+    actions = re.findall(r"uses:\s+([^#\s]+)", ci + "\n" + artifact)
+    assert actions
+    assert all(re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action) for action in actions)
+
+    assert ".envrc" in gitignore
+    assert "*.jsonl" in gitignore
+    assert "!examples/codex-maintenance/trace-order-a.jsonl" in gitignore
+    assert "!examples/codex-maintenance/trace-order-b.jsonl" in gitignore
+    assert "global-exclude *.jsonl" in manifest
+    assert "global-exclude *.pem" in manifest
+    assert "global-exclude *.key" in manifest
+    assert "include examples/codex-maintenance/trace-order-a.jsonl" in manifest
+    assert "include examples/codex-maintenance/trace-order-b.jsonl" in manifest

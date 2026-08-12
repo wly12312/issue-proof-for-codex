@@ -1,9 +1,17 @@
-# Example evidence report
+# Generic report expectations
 
-An actual run fills this template with a UUID, timestamps, repository revision, sanitized output,
-and SHA-256 hashes. The outcome is read from the report rather than inferred from prose:
+This is an interpretation guide, not the output of a real user run. An actual invocation generates
+its own UUID, timestamps, repository revision, bounded sanitized output, and SHA-256 values.
 
-- Reproduction: **reproduced**
-- Verification: **not-applicable**
+For the deterministic example in the root README:
 
-See the root README for the exact commands used to generate `report.json` and `report.md`.
+- the baseline report records `reproduction.outcome` as `reproduced` because the explicit command
+  completes with a non-zero exit before the marker exists;
+- the baseline report records `verification.outcome` as `not-applicable`;
+- the post-marker report records `verification.outcome` as `verified` only when the same argv
+  completes with exit code zero;
+- `report.md` is a deterministic rendering of the corresponding `report.json` fields, apart from
+  values already generated for that run.
+
+Use the exact PowerShell walkthrough in the root `README.md` to generate and validate the files.
+Do not use this document as a golden receipt or claim that its prose is execution evidence.

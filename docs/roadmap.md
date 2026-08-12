@@ -1,34 +1,39 @@
-# Roadmap
+# Maintenance scope
 
-## Codex-first maintenance evidence layer (current)
+## Support boundary
 
-- Local Issue file and authenticated `gh` Issue URL input.
-- Explicit argv execution with timeout, bounded sanitized logs, runtime/Git facts, stable hashes,
-  JSON Schema contract, Markdown rendering, and conservative verification.
-- Streaming, tolerant Codex JSONL import; versioned `CodexMaintenanceReceipt`; AGENTS and Git
-  provenance; deterministic claims; offline baseline-to-trace-to-verify flow.
-- Python CLI, Agent Skill, skill-only Codex plugin manifest, synthetic fixtures, tests, and CI matrix.
-- Version 0.1.2 officially supports Windows 10/11 with Python 3.11, 3.12, and 3.14. Linux and macOS
-  are unsupported, untested, and unverified.
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
 
-## 0.2
+## Current implemented scope
 
-- Multiple-run stability sampling with explicit flakiness statistics.
-- Optional artifact manifest for user-selected files, still bounded and path-checked.
-- Better platform-specific process-tree diagnostics and richer `gh` authentication guidance.
-- Schema migration tooling and machine-readable validation diagnostics.
-- A compatibility fixture matrix for additional public Codex event releases, still offline and
-  tolerant of unknown payloads.
+- Local Markdown Issue input and authenticated GitHub Issue reads through explicit `gh issue view`.
+- Explicit argv execution with Windows process-tree timeout handling, bounded sanitized output,
+  runtime/Git facts, stable hashes, generic JSON reports, and Markdown rendering.
+- Baseline reproduction and conservative same-argv verification.
+- Explicit Codex JSONL ingestion with line, text, and event limits.
+- Versioned, redacted `CodexMaintenanceReceipt` objects with Git and AGENTS provenance, evidence
+  claims, warnings, and deterministic Markdown.
+- A Python CLI, self-contained Agent Skill directory, skills-only plugin manifest, synthetic offline
+  fixtures, Draft 2020-12 schemas, and Windows CI.
 
-## 0.3
+## Current maintenance priorities
 
-- Pluggable language/runtime adapters for test discovery and version normalization.
-- Maintainer-reviewed evidence comparison and signed local bundles.
-- Optional integrations that remain opt-in and read-only by default.
-- A documented, privacy-preserving aggregate format for voluntary adoption metrics.
+- Preserve Windows 10/11 behavior across Python 3.11, 3.12, and 3.14.
+- Keep README, CLI, Skill, plugin metadata, schemas, fixtures, and workflows aligned with shipped
+  behavior.
+- Require reproducible evidence and regression tests for defect fixes.
+- Keep missing, corrupt, truncated, over-limit, or conflicting evidence conservative.
+- Preserve privacy redaction, output boundaries, argv separation, Unicode and space handling, UNC
+  and drive paths, and timeout/process-tree behavior.
 
-## Later, only with a separate safety review
+## Out of scope
 
-Docker or VM executors, a GitHub App, authorized comment write-back, and broader multi-language
-environment provisioning are intentionally deferred. They are not implied by the CLI, receipt,
-or Skill.
+The current project does not implement Linux or macOS support, a GUI, network service, telemetry,
+automatic Codex-state capture, autonomous repair, a GitHub App, comment or pull-request write-back,
+release publication, or general-purpose sandboxing. These are not implied by the CLI, receipt,
+Skill, or plugin.
+
+This document describes shipped scope and maintenance boundaries. It does not promise unimplemented
+features or release dates.

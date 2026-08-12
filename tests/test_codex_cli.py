@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from issue_proof.cli import main
+from issue_proof.cli import _load_command_argv, main
 
 FIXTURE = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
 
@@ -108,3 +108,11 @@ def test_codex_agents_cli_is_read_only_json(tmp_path, capsys) -> None:
     data = json.loads(capsys.readouterr().out)
     assert data["target_exists"] is False
     assert data["files"][0]["relative_path"] == "AGENTS.md"
+
+
+def test_command_argv_preserves_explicit_empty_argument(tmp_path) -> None:
+    path = tmp_path / "command argv.json"
+    expected = [sys.executable, "-c", "import sys; print(len(sys.argv))", ""]
+    path.write_text(json.dumps({"argv": expected}), encoding="utf-8")
+
+    assert _load_command_argv(path) == expected

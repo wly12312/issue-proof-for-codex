@@ -30,6 +30,15 @@ def test_agents_rejects_traversal(tmp_path) -> None:
         collect_agents(tmp_path, "../outside.py")
 
 
+@pytest.mark.parametrize(
+    "target",
+    [r"C:drive-relative.txt", r"\rooted.txt", r"\\?\C:\device\target.txt"],
+)
+def test_agents_rejects_drive_qualified_rooted_and_device_targets(tmp_path, target) -> None:
+    with pytest.raises(OutputPathError):
+        collect_agents(tmp_path, target)
+
+
 def test_agents_records_symlink_without_following_when_supported(tmp_path) -> None:
     outside = tmp_path.parent / "outside-agents.md"
     outside.write_text("outside", encoding="utf-8")

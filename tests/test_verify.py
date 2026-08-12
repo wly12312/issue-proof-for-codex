@@ -85,3 +85,21 @@ def test_verify_rejects_reproduced_baseline_with_zero_exit(tmp_path) -> None:
         repo_root=tmp_path,
     )
     assert current.verification["outcome"] == "inconclusive"
+
+
+def test_direct_verification_rejects_a_different_repository(tmp_path) -> None:
+    baseline_root = tmp_path / "baseline repo"
+    verification_root = tmp_path / "verification repo"
+    baseline_root.mkdir()
+    verification_root.mkdir()
+    baseline_report, _ = baseline(baseline_root)
+
+    result = verify_argv_against_baseline(
+        baseline_report,
+        argv=list(baseline_report.execution.argv),
+        execution={"exit_code": 0, "timed_out": False},
+        repo_root=verification_root,
+    )
+
+    assert result["verification"]["outcome"] == "inconclusive"
+    assert "repository" in result["verification"]["reason"].lower()

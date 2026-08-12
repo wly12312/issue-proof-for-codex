@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "oss-issue-proof"
-version = "0.1.2"
+version = "0.1.3"
 description = "Evidence and verification receipts for Codex-powered open-source maintenance"
 readme = "README.md"
 requires-python = ">=3.11"

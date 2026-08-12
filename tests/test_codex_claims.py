@@ -121,3 +121,128 @@ def test_files_changed_can_use_available_trace_evidence_without_git() -> None:
 
     assert claims[0].evidence_ids == ["trace-files"]
     assert claims[0].status == "supported"
+
+
+def test_command_claim_is_unverified_when_any_cited_command_is_incomplete() -> None:
+    claims, _ = verify_claims(
+        [
+            {
+                "id": "tests",
+                "type": "tests-passed",
+                "evidence_ids": ["complete", "timed-out"],
+            }
+        ],
+        {
+            "commands": [
+                {
+                    "id": "complete",
+                    "display_command": "pytest tests/complete.py",
+                    "exit_code": 0,
+                    "timed_out": False,
+                },
+                {
+                    "id": "timed-out",
+                    "display_command": "pytest tests/slow.py",
+                    "exit_code": None,
+                    "timed_out": True,
+                },
+            ],
+            "evidence_ids": ["complete", "timed-out"],
+        },
+    )
+
+    assert claims[0].status == "unverified"
+    assert "incomplete" in claims[0].reason.lower()
+
+
+def test_claim_types_require_semantically_matching_evidence_ids() -> None:
+    claims, _ = verify_claims(
+        [
+            {"id": "bug", "type": "bug-reproduced", "evidence_ids": ["trace"]},
+            {"id": "fix", "type": "fix-verified", "evidence_ids": ["trace"]},
+        ],
+        {
+            "commands": [],
+            "baseline": {"outcome": "reproduced"},
+            "verification": {"outcome": "verified"},
+            "evidence_ids": ["trace", "baseline-reproduction", "verification"],
+        },
+    )
+
+    assert all(claim.status == "unverified" for claim in claims)
+    assert all("required evidence" in claim.reason.lower() for claim in claims)
+
+
+def test_command_auto_matching_does_not_treat_substrings_as_test_runners() -> None:
+    claims, _ = verify_claims(
+        [{"id": "tests", "type": "tests-passed"}],
+        {
+            "commands": [
+                {
+                    "id": "version",
+                    "argv": ["contest.exe", "--version"],
+                    "display_command": "contest.exe --version",
+                    "exit_code": 0,
+                    "timed_out": False,
+                }
+            ],
+            "evidence_ids": ["version"],
+        },
+    )
+
+    assert claims[0].evidence_ids == []
+    assert claims[0].status == "unverified"
+
+
+def test_no_source_changes_cannot_ignore_conflicting_trace_file_evidence() -> None:
+    evidence = {
+        "commands": [],
+        "git": {
+            "end": {
+                "changed_files": [],
+                "captured": True,
+                "changed_files_truncated": False,
+            }
+        },
+        "trace_files": [{"path": "src/bug.py"}],
+        "evidence_ids": ["git-end", "trace-files"],
+    }
+
+    uncited, _ = verify_claims(
+        [{"id": "clean", "type": "no-source-changes", "evidence_ids": ["git-end"]}],
+        evidence,
+    )
+    cited, _ = verify_claims(
+        [
+            {
+                "id": "clean",
+                "type": "no-source-changes",
+                "evidence_ids": ["git-end", "trace-files"],
+            }
+        ],
+        evidence,
+    )
+
+    assert uncited[0].status == "unverified"
+    assert cited[0].status == "refuted"
+
+
+def test_files_changed_rejects_paths_outside_repository_scope() -> None:
+    claims, _ = verify_claims(
+        [
+            {
+                "id": "files",
+                "type": "files-changed",
+                "expected_files": ["../../outside.py"],
+                "evidence_ids": ["trace-files"],
+            }
+        ],
+        {
+            "commands": [],
+            "trace_files": [{"path": "../../outside.py"}],
+            "evidence_ids": ["trace-files"],
+        },
+    )
+
+    assert claims[0].status == "unverified"
+    assert "repository-relative" in claims[0].reason

@@ -22,6 +22,7 @@ CLAIM_TYPES = {
     "files-changed",
 }
 CLAIM_STATUSES = {"supported", "refuted", "unverified", "not-applicable"}
+_WINDOWS_QUALIFIED = re.compile(r"^(?:[A-Za-z]:|[\\/])")
 
 
 @dataclass
@@ -161,6 +162,18 @@ def _normalise_claim(
     )
 
 
+def _is_repository_relative_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    parts = normalized.split("/")
+    return bool(
+        normalized
+        and normalized != "."
+        and not _WINDOWS_QUALIFIED.match(value)
+        and all(part not in {"", ".", ".."} for part in parts)
+        and "\x00" not in value
+    )
+
+
 def _heuristic_claims(messages: Iterable[dict[str, Any]]) -> list[Claim]:
     patterns = (
         ("bug-reproduced", re.compile(r"\bbug\s+(?:is\s+)?reproduced\b", re.I)),
@@ -192,13 +205,16 @@ def _heuristic_claims(messages: Iterable[dict[str, Any]]) -> list[Claim]:
 
 
 def _command_matches(command: dict[str, Any], claim_type: str) -> bool:
-    text = f"{command.get('display_command', '')} {' '.join(command.get('argv', []))}".lower()
-    keywords = {
-        "tests-passed": ("test", "pytest", "tox", "unittest", "check"),
-        "lint-passed": ("lint", "ruff", "eslint", "flake8", "clippy"),
-        "build-passed": ("build", "compile", "package", "mvn", "cargo"),
+    argv = command.get("argv", [])
+    if not isinstance(argv, list) or not all(isinstance(item, str) for item in argv):
+        return False
+    tokens = {Path(item).name.lower().removesuffix(".exe") for item in argv}
+    runners = {
+        "tests-passed": {"pytest", "tox", "unittest", "nox"},
+        "lint-passed": {"ruff", "eslint", "flake8", "clippy"},
+        "build-passed": {"build", "mvn", "cargo"},
     }
-    return any(keyword in text for keyword in keywords.get(claim_type, ()))
+    return bool(tokens.intersection(runners.get(claim_type, set())))
 
 
 def _status_for_commands(commands: list[dict[str, Any]]) -> tuple[str, str]:
@@ -209,6 +225,8 @@ def _status_for_commands(commands: list[dict[str, Any]]) -> tuple[str, str]:
     ]
     if not complete:
         return "unverified", "Command evidence has no completed exit code."
+    if len(complete) != len(commands):
+        return "unverified", "At least one cited command evidence record is incomplete."
     outcomes = {item.get("exit_code") == 0 for item in complete}
     if outcomes == {True}:
         return "supported", "All cited completed command evidence exited 0."
@@ -250,6 +268,11 @@ def verify_claims(
     all_ids = set(evidence.get("evidence_ids", []))
     all_ids.update(command_by_id)
     warnings: list[str] = []
+    required_evidence = {
+        "bug-reproduced": {"baseline-reproduction"},
+        "fix-verified": {"verification"},
+        "no-source-changes": {"git-end"},
+    }
     for claim in claims:
         if claim.type not in CLAIM_TYPES:
             claim.status = "not-applicable"
@@ -279,6 +302,21 @@ def verify_claims(
         if missing:
             claim.status = "unverified"
             claim.reason = f"Cited evidence ID(s) are unavailable: {', '.join(missing)}."
+            continue
+        required = required_evidence.get(claim.type)
+        if required and not required.issubset(claim.evidence_ids):
+            claim.status = "unverified"
+            claim.reason = (
+                "Required evidence ID(s) were not cited: " + ", ".join(sorted(required)) + "."
+            )
+            continue
+        if (
+            claim.type == "no-source-changes"
+            and trace_files
+            and "trace-files" not in claim.evidence_ids
+        ):
+            claim.status = "unverified"
+            claim.reason = "Available trace file-change evidence was not cited."
             continue
         if claim.type in {"tests-passed", "lint-passed", "build-passed"}:
             cited = [command_by_id[item] for item in claim.evidence_ids if item in command_by_id]
@@ -327,6 +365,12 @@ def verify_claims(
                     "cannot prove that no source changed.",
                 )
                 continue
+            if "trace-files" in claim.evidence_ids and trace_files:
+                claim.status, claim.reason = (
+                    "refuted",
+                    "Cited trace evidence lists file changes.",
+                )
+                continue
             changed = end_git.get("changed_files", []) if isinstance(end_git, dict) else []
             if isinstance(changed, list) and not changed:
                 claim.status, claim.reason = (
@@ -344,6 +388,20 @@ def verify_claims(
                     "Git changed-file evidence is unavailable.",
                 )
         elif claim.type == "files-changed":
+            trace_paths = [
+                str(item.get("path", ""))
+                for item in trace_files
+                if isinstance(item, dict) and item.get("path")
+            ]
+            if any(
+                not _is_repository_relative_path(path)
+                for path in [*claim.expected_files, *trace_paths]
+            ):
+                claim.status, claim.reason = (
+                    "unverified",
+                    "Changed-file evidence and expected_files must use repository-relative paths.",
+                )
+                continue
             if "git-end" in claim.evidence_ids and _changed_files_are_incomplete(end_git):
                 claim.status, claim.reason = (
                     "unverified",
@@ -352,9 +410,13 @@ def verify_claims(
                 )
                 continue
             actual: set[str] = set()
-            if isinstance(end_git, dict) and isinstance(end_git.get("changed_files"), list):
+            if (
+                "git-end" in claim.evidence_ids
+                and isinstance(end_git, dict)
+                and isinstance(end_git.get("changed_files"), list)
+            ):
                 actual.update(str(item).replace("\\", "/") for item in end_git["changed_files"])
-            if isinstance(trace_files, list):
+            if "trace-files" in claim.evidence_ids and isinstance(trace_files, list):
                 actual.update(
                     str(item.get("path", "")).replace("\\", "/")
                     for item in trace_files

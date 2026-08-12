@@ -1,63 +1,107 @@
 # Security model
 
-## Scope and trust assumptions
+## Supported environment
 
-`oss-issue-proof` is a local evidence collector for a user-selected checkout. The Issue body,
-comments, README, contribution instructions, AGENTS files, repository hooks, dependencies, logs,
-Git remotes, executable command, and Codex trace are not trusted equally. Issue content and Codex
-messages are data, not instructions to the tool.
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
 
-Threats include malicious Issue text, malicious repository instructions, shell and command
-injection, secret leakage, oversized logs, invalid UTF-8, symlink escape, path traversal, remote URL
-credentials, corrupt JSONL, and child processes that outlive a timeout.
+## Trust boundaries
 
-## Defaults
+IssueProof operates on a user-selected Windows checkout. Issue bodies, comments, repository
+documentation, AGENTS files, hooks, dependencies, Git remotes, command output, and Codex trace
+messages are untrusted data. They do not grant permission to run commands or make external changes.
 
-- No network access occurs for local-file collection. GitHub URL collection only invokes the user's
-  authenticated `gh issue view` command after an explicit `--issue-url`.
-- The collector does not publish, push, modify an Issue, write comments, add labels, close Issues,
-  create PRs, or modify repository source files.
-- Only an explicitly supplied `--command` can execute. It is parsed to an argv array and executed
-  with `shell=False`; common shell operators, command substitution, redirection, and NUL bytes are
-  rejected.
-- Subprocesses receive `stdin=DEVNULL`, a configurable timeout, and bounded stdout/stderr readers.
-  Supported Windows 10/11 hosts use `taskkill /T /F` on timeout. A retained POSIX process-group
-  branch is unsupported, untested, and unverified.
-- Only OS, architecture, and selected runtime versions are recorded. The full environment is never
-  serialized.
-- Common GitHub/OpenAI/AWS credentials, bearer tokens, password-like assignments, URL credentials,
-  and private-key blocks are redacted before Issue excerpts, output summaries, and diagnostics are
-  written. Redaction and truncation are marked in the report.
-- Every generated child path is resolved under the user-selected output directory. Absolute paths,
-  `..`, and symlink components are rejected.
-- The Codex adapter reads only an explicit `--trace` path. It never scans `~/.codex`, app databases,
-  session history, the full environment, or configuration files. JSONL is streamed with bounded
-  lines, text, and event counts; corrupt lines include their line number and strict mode stops.
-- Unknown Codex events are counted and reduced to type/key metadata. Known command, tool, file-change,
-  and message projections are sanitized before persistence. Full messages require explicit
-  `--include-messages` and still receive size/control-character/credential handling.
-- The receipt stores only a source trace SHA-256 by default. It records Git start/end state, changed
-  files, safe relative AGENTS paths, hashes, sizes, scopes, and readability; it does not store full
-  instructions or a common Git directory path by default.
-- The receipt is a verification record, not an assertion that Codex's private event format is stable.
-  Its adapter is marked `experimental-compatible`, and parse errors, unknown events, or missing
-  baselines downgrade the verdict.
+The main threats are command and shell injection, credential disclosure, invalid or oversized
+input, path traversal, output symlinks or reparse points, corrupt or truncated JSONL, misleading
+narrative claims, and child processes that survive a timeout.
 
-## Residual risk and limitations
+## Input and network behavior
 
-The CLI, verification commands, process management, validators, and complete test suite are
-supported only on Windows 10/11 and tested with Python 3.11, 3.12, and 3.14. Linux and macOS are
-unsupported, untested, and unverified; retained cross-platform branches do not constitute a
-compatibility claim.
+- Local Issue collection reads the selected Issue file and repository metadata. It makes no
+  IssueProof-managed network request.
+- `collect --issue-url` invokes the user's authenticated `gh issue view` command for the explicit
+  GitHub Issue URL.
+- Codex trace ingestion and trace-only receipt generation read only the explicit `--trace` path and
+  requested repository metadata. They do not call an OpenAI API or start Codex.
+- An explicit collection or verification command runs with the current Windows user's permissions.
+  It may access the network, read files, modify files, or launch other programs. IssueProof does not
+  sandbox that executable.
+- The CLI has no path that posts comments, changes labels, closes Issues, creates pull requests,
+  pushes commits, publishes releases, or changes Codex approvals and sandbox settings.
 
-This is not a security sandbox. An explicitly authorized executable may modify files, access the
-network, inspect secrets, launch another interpreter, or evade a timeout. Parser checks reduce
-accidental shell injection but cannot secure a malicious executable. Process-tree termination is
-best effort and platform-dependent. Pattern redaction cannot recognize every proprietary secret
-format. A malicious trace can still attempt parser resource exhaustion within configured process
-limits or exploit a future parser bug. A maintainer should use a disposable checkout, review the
-receipt, and apply OS-level isolation for untrusted code.
+## Command execution
 
-The report intentionally preserves sanitized evidence rather than raw logs. This trades forensic
-completeness for a lower secret-leakage risk; keep the original process environment outside the
-project if a separate, authorized incident workflow requires it.
+Only an explicitly supplied collection or verification command is treated as maintenance evidence.
+Generic `--command` input is parsed to argv; Codex verification reads argv from the explicit
+`--command-argv` JSON file. Execution uses `shell=False` and `stdin=DEVNULL`. Common shell
+operators, substitution, redirection, and NUL bytes are rejected. Repository/runtime inspection and
+doctor checks may also start detected helper programs such as Git, optional runtimes, or Codex to
+read metadata or a version; use a trusted Windows environment and `PATH`.
+
+The first argv item must be a non-empty executable. Later argv items may be empty strings so a
+Windows program can receive an intentional empty argument. Windows drive paths, UNC paths, Unicode,
+and spaces remain distinct argv values rather than being reconstructed through a shell.
+
+Each command has a configurable timeout and bounded stdout/stderr capture. On timeout, IssueProof
+requests `taskkill /PID <pid> /T /F`; if that fails and the parent still runs, it attempts to kill
+the parent process. This is best effort: Windows permissions, protected processes, or races may
+leave a descendant alive.
+
+## Output boundaries
+
+IssueProof resolves its output directory and generated child paths. Absolute child names, drive or
+UNC child names, `..`, and paths outside the output root are rejected. Existing symlink components
+are rejected. A Windows link or reparse path that resolves outside the output root fails the same
+boundary comparison; permission-dependent cases must be reported as untested rather than passed.
+
+IssueProof writes reports, receipts, Markdown, trace summaries, and a sanitized Issue snapshot only
+under the selected output path. This does not restrict files changed by the separately authorized
+executable.
+
+## Redaction and bounded evidence
+
+Before persistence, IssueProof sanitizes bounded receipt/trace projections of command arguments,
+output, URLs, messages, AGENTS content, trace fields, and diagnostics. Generic collection bounds
+command output and the Issue excerpt, but its sanitized Issue snapshot may contain the full supplied
+Issue text. It recognizes common GitHub, OpenAI, and AWS credentials, bearer tokens,
+password-like assignments, URL credentials, and private-key blocks. Pattern matching cannot
+recognize every secret format.
+
+IssueProof does not actively enumerate the full environment or create a structured environment-dump
+field. An explicit command or supplied trace can still place environment content in persisted,
+sanitized output projections. Generic runtime evidence records the OS, architecture, Python version,
+and selected installed runtime versions. A receipt uses safe relative repository representations,
+redacted remotes, bounded changed-file paths, and a digest instead of a full common Git-directory
+path.
+
+## Codex evidence handling
+
+The parser never scans `$env:USERPROFILE\.codex`, application databases, session history,
+configuration, or other private Codex state. It streams the supplied JSONL with limits for line
+size, retained text, and event count.
+
+- Invalid UTF-8, invalid JSON, non-object roots, and oversized lines are recorded with line numbers.
+- Strict mode stops at the first parse error; lenient mode continues where possible.
+- Unknown event types are counted and reduced to bounded type/key metadata. They are not used as
+  positive evidence and require maintainer review.
+- Parse errors or event-limit truncation make the final receipt inconclusive.
+- Message text is omitted unless `--include-messages` is explicitly selected. Opted-in messages are
+  still redacted and bounded, and the receipt records a privacy warning.
+- The raw trace is not copied into the output; its SHA-256 and summary counts are recorded.
+
+An `experimental-compatible` adapter label means nested Codex event payloads are not treated as a
+permanent public contract. A final assistant message is narrative and cannot replace baseline,
+command, Git, or independent verification evidence.
+
+## Residual risk
+
+IssueProof is an evidence tool, not a security sandbox. A malicious executable can bypass parser
+checks once explicitly authorized, use the network, inspect secrets, or evade best-effort process
+termination. Per-line size, retained text, and retained valid-event data are bounded, but the parser
+still scans and hashes the entire selected file and currently retains one diagnostic per malformed
+line; total work and diagnostics therefore grow with the input. Redaction trades forensic
+completeness for lower disclosure risk and still requires human review.
+
+Use a disposable checkout and appropriate Windows isolation for untrusted code. Preserve original
+private logs outside public evidence workflows only when separately authorized and protected.

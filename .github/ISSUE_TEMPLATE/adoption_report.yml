@@ -1,22 +1,66 @@
 name: Adoption report
-description: Share an authorized, privacy-preserving trial result
+description: Share an authorized, privacy-preserving observation from supported Windows runs
 title: "adoption: "
 labels: [adoption]
 body:
   - type: markdown
     attributes:
-      value: Do not upload Issue bodies, credentials, private repository URLs, or raw evidence.
+      value: |
+        Officially supported: Windows 10/11.
+        Tested: Windows with Python 3.11, 3.12, and 3.14.
+        Linux/macOS: unsupported, untested, and unverified.
+
+        Report only actual, reviewed observations. Synthetic fixtures are not adoption evidence.
+        Do not upload raw receipts, Issue bodies, credentials, prompts, private repository URLs,
+        raw traces, environment dumps, or personal data.
+  - type: dropdown
+    id: windows_version
+    attributes:
+      label: Windows environment
+      options:
+        - Windows 11
+        - Windows 10
+        - Multiple supported Windows versions
+    validations:
+      required: true
+  - type: dropdown
+    id: python_version
+    attributes:
+      label: Tested Python environment
+      options:
+        - Python 3.14
+        - Python 3.12
+        - Python 3.11
+        - Multiple tested Python versions
+    validations:
+      required: true
   - type: input
     id: repository_count
     attributes:
-      label: Aggregate repository count
-      description: Number of repositories in the trial, without names unless public and authorized.
+      label: Authorized repository count
+      description: Actual number of repositories represented, without private names or inferred identities.
     validations:
       required: true
   - type: textarea
-    id: metrics
+    id: method
     attributes:
-      label: Aggregate metrics
-      description: Successful reproductions, inconclusive rate, time-to-triage, and limitations.
+      label: Calculation method
+      description: Explain exactly how every aggregate value was calculated and reviewed.
     validations:
       required: true
+  - type: textarea
+    id: observations
+    attributes:
+      label: Aggregate observations
+      description: Report actual outcome or claim counts and limitations. Do not estimate missing values or claim causality.
+    validations:
+      required: true
+  - type: checkboxes
+    id: authorization
+    attributes:
+      label: Authorization and privacy confirmation
+      options:
+        - label: I am authorized to share these aggregate observations.
+          required: true
+        - label: I removed private data and did not use synthetic fixtures as adoption evidence.
+          required: true

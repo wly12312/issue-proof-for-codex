@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,9 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
+from ..collector import ensure_output_dir, safe_output_file
 from ..errors import DependencyError, SchemaValidationError
 from ..models import Report
-from ..redact import redact_text
+from ..redact import REDACTION, redact_text, sha256_text
 from .agents import AgentScan
 from .claims import Claim, verify_claims
 from .events import TraceSummary
@@ -23,7 +25,7 @@ RECEIPT_SCHEMA_VERSION = "1.0.0"
 RECEIPT_TYPE = "CodexMaintenanceReceipt"
 RECEIPT_VERDICTS = {"verified", "partially-verified", "unverified", "refuted", "inconclusive"}
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
-_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:|[\\/])")
 
 
 def _utc_now() -> str:
@@ -44,6 +46,8 @@ def _safe_path_value(value: Any, limit: int = 1_024) -> str | None:
     text = _safe_value(value, limit)
     if not text:
         return text
+    if text.startswith("<absolute-path>"):
+        return "<absolute-path>"
     if _ABSOLUTE_WINDOWS.match(text) or text.startswith("/"):
         return "<absolute-path>"
     return text.replace("\\", "/")
@@ -58,31 +62,32 @@ def _public_execution(execution: dict[str, Any] | None, evidence_id: str) -> dic
 
     def public_stream(value: Any, label: str) -> dict[str, Any]:
         stream = value if isinstance(value, dict) else {}
-        summary = _safe_value(stream.get("summary"), 16_384) or ""
+        raw_summary = str(stream.get("summary") or "")
+        projected = redact_text(raw_summary)
+        summary = _safe_value(raw_summary, 16_384) or ""
         return {
             "summary": summary,
-            "sha256": stream.get("sha256") if isinstance(stream.get("sha256"), str) else None,
-            "captured_bytes": stream.get("captured_bytes")
-            if isinstance(stream.get("captured_bytes"), int)
-            else len(summary.encode("utf-8")),
-            "truncated": bool(stream.get("truncated", False)),
-            "redacted": bool(stream.get("redacted", False)),
+            "sha256": sha256_text(summary),
+            "captured_bytes": len(summary.encode("utf-8")),
+            "truncated": bool(stream.get("truncated", False)) or len(projected.text) > 16_384,
+            "redacted": bool(stream.get("redacted", False)) or projected.redacted,
             "source": label,
         }
 
+    public_argv = [
+        (
+            _safe_path_value(item, 1_024)
+            if _ABSOLUTE_WINDOWS.match(item) or item.startswith("/")
+            else _safe_value(item, 1_024)
+        )
+        or ""
+        for item in argv
+        if isinstance(item, str)
+    ]
     return {
         "id": evidence_id,
-        "argv": [
-            (
-                _safe_path_value(item, 1_024)
-                if _ABSOLUTE_WINDOWS.match(item) or item.startswith("/")
-                else _safe_value(item, 1_024)
-            )
-            or ""
-            for item in argv
-            if isinstance(item, str)
-        ],
-        "display_command": _safe_value(execution.get("display_command"), 4_096),
+        "argv": public_argv,
+        "display_command": subprocess.list2cmdline(public_argv) if public_argv else None,
         "cwd": _safe_path_value(execution.get("cwd"), 1_024),
         "exit_code": execution.get("exit_code")
         if isinstance(execution.get("exit_code"), int)
@@ -100,6 +105,22 @@ def _report_data(value: Report | dict[str, Any] | None) -> dict[str, Any] | None
     if isinstance(value, Report):
         return value.as_dict()
     return value if isinstance(value, dict) else None
+
+
+def _exact_argv(execution: Any) -> list[str] | None:
+    if not isinstance(execution, dict):
+        return None
+    argv = execution.get("argv")
+    if (
+        not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(item, str) for item in argv)
+        or not argv[0]
+        or any(REDACTION in item for item in argv)
+        or any(redact_text(item).redacted for item in argv)
+    ):
+        return None
+    return list(argv)
 
 
 def _baseline_record(value: Report | dict[str, Any] | None) -> dict[str, Any] | None:
@@ -122,6 +143,9 @@ def _verification_record(
     value: Report | dict[str, Any] | None,
     baseline: dict[str, Any] | None,
     command: dict[str, Any] | None,
+    *,
+    same_argv: bool | None,
+    baseline_run_matches: bool | None,
 ) -> dict[str, Any]:
     data = _report_data(value)
     verification = (
@@ -134,13 +158,11 @@ def _verification_record(
         "reason": _safe_value(verification.get("reason"), 2_048),
         "baseline_evidence_id": "baseline-reproduction" if baseline else None,
         "verification_command_evidence_id": "verification-command" if command else None,
-        "same_argv": None,
+        "same_argv": same_argv,
         "baseline_required": True,
     }
     if command:
         result["command"] = command
-    if baseline and command:
-        result["same_argv"] = baseline.get("execution", {}).get("argv") == command.get("argv")
     if not data:
         result.update(
             {
@@ -154,6 +176,11 @@ def _verification_record(
             result.update(
                 outcome="inconclusive",
                 reason="Verified outcome requires baseline and verification command evidence.",
+            )
+        elif baseline_run_matches is not True:
+            result.update(
+                outcome="inconclusive",
+                reason="Verification baseline run does not match the supplied baseline run.",
             )
         elif (
             baseline.get("outcome") != "reproduced"
@@ -251,11 +278,13 @@ def _repository_record(provenance: GitProvenance | None) -> dict[str, Any]:
 
 def _evidence_records(
     trace: TraceSummary,
+    trace_commands: list[dict[str, Any]],
     baseline: dict[str, Any] | None,
     verification: dict[str, Any],
     provenance: GitProvenance | None,
     agents: AgentScan | None,
 ) -> list[dict[str, Any]]:
+    public_command_by_id = {command.get("id"): command for command in trace_commands}
     evidence: list[dict[str, Any]] = [
         {
             "id": "trace",
@@ -264,15 +293,24 @@ def _evidence_records(
         }
     ]
     for event in trace.events:
+        summary = event.summary
+        if event.kind == "command":
+            public_command = public_command_by_id.get(event.data.get("evidence_id"))
+            if public_command:
+                summary = (
+                    "command execution: "
+                    f"{public_command.get('display_command') or '<unknown>'} "
+                    f"(exit {public_command.get('exit_code')})"
+                )
         evidence.append(
             {
                 "id": event.event_id,
                 "type": event.kind,
                 "line": event.line_number,
-                "summary": event.summary,
+                "summary": _safe_value(summary, 4_096),
             }
         )
-    for command in trace.command_evidence:
+    for command in trace_commands:
         evidence.append(
             {
                 "id": command["id"],
@@ -349,12 +387,12 @@ def _verdict(
     claims: list[Claim],
     trace: TraceSummary,
 ) -> str:
+    if trace.parse_errors or trace.event_limit_reached or trace.valid_events == 0:
+        return "inconclusive"
     if verification.get("outcome") == "not-fixed":
         return "refuted"
     if any(claim.status == "refuted" for claim in claims):
         return "refuted"
-    if trace.parse_errors or trace.event_limit_reached:
-        return "inconclusive"
     if verification.get("outcome") == "inconclusive":
         return "inconclusive"
     if verification.get("outcome") == "verified":
@@ -365,7 +403,7 @@ def _verdict(
         return "unverified"
     if claims and any(claim.status == "supported" for claim in claims):
         return "partially-verified"
-    return "inconclusive" if trace.valid_events == 0 else "unverified"
+    return "unverified"
 
 
 @dataclass
@@ -448,18 +486,53 @@ def build_receipt(
         except (OSError, ValueError) as exc:
             provenance_warnings.append(f"Git provenance unavailable: {exc.__class__.__name__}")
 
-    baseline_record = _baseline_record(baseline)
-    verification_command = (
+    baseline_data = _report_data(baseline)
+    verification_data = _report_data(verification)
+    baseline_execution = baseline_data.get("execution") if baseline_data else None
+    baseline_argv = _exact_argv(baseline_execution)
+    verification_argv = _exact_argv(verification_command)
+    same_argv = (
+        baseline_argv == verification_argv
+        if baseline_argv is not None and verification_argv is not None
+        else None
+    )
+    baseline_run_id = baseline_data.get("run_id") if baseline_data else None
+    verification_details = (
+        verification_data.get("verification")
+        if verification_data and isinstance(verification_data.get("verification"), dict)
+        else {}
+    )
+    verification_baseline_run_id = verification_details.get("baseline_run_id")
+    baseline_run_matches = (
+        baseline_run_id == verification_baseline_run_id
+        if isinstance(baseline_run_id, str)
+        and baseline_run_id
+        and isinstance(verification_baseline_run_id, str)
+        and verification_baseline_run_id
+        else None
+    )
+    baseline_record = _baseline_record(baseline_data)
+    public_verification_command = (
         _public_execution(verification_command, "verification-command")
         if verification_command
         else None
     )
-    if verification_command:
-        verification_command["id"] = "verification-command"
-    verification_record = _verification_record(verification, baseline_record, verification_command)
-    commands = list(trace.command_evidence)
-    if verification_command:
-        commands.append(verification_command)
+    if public_verification_command:
+        public_verification_command["id"] = "verification-command"
+    verification_record = _verification_record(
+        verification_data,
+        baseline_record,
+        public_verification_command,
+        same_argv=same_argv,
+        baseline_run_matches=baseline_run_matches,
+    )
+    commands = [
+        projected
+        for command in trace.command_evidence
+        if (projected := _public_execution(command, str(command.get("id") or "trace-command")))
+    ]
+    if public_verification_command:
+        commands.append(public_verification_command)
     claim_evidence = {
         "commands": commands,
         "baseline": baseline_record,
@@ -470,7 +543,7 @@ def build_receipt(
         "evidence_ids": [
             item["id"]
             for item in _evidence_records(
-                trace, baseline_record, verification_record, provenance, agents
+                trace, commands, baseline_record, verification_record, provenance, agents
             )
         ],
     }
@@ -545,7 +618,9 @@ def build_receipt(
             "event_limit_reached": trace.event_limit_reached,
             "include_messages": trace.include_messages,
         },
-        evidence=_evidence_records(trace, baseline_record, verification_record, provenance, agents),
+        evidence=_evidence_records(
+            trace, commands, baseline_record, verification_record, provenance, agents
+        ),
         claims=[claim.as_dict() for claim in claims],
         verdict=_verdict(verification_record, baseline_record, claims, trace),
         warnings=warnings,
@@ -588,6 +663,17 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
         errors.append(f"receipt_type must be {RECEIPT_TYPE}")
     if not isinstance(data.get("tool_version"), str) or not data.get("tool_version"):
         errors.append("tool_version must be a non-empty string")
+    generated_at = data.get("generated_at")
+    if not isinstance(generated_at, str):
+        errors.append("generated_at must be an RFC 3339 date-time string")
+    else:
+        try:
+            parsed_generated_at = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        except ValueError:
+            errors.append("generated_at must be an RFC 3339 date-time string")
+        else:
+            if parsed_generated_at.tzinfo is None:
+                errors.append("generated_at must include a UTC offset")
     if data.get("verdict") not in RECEIPT_VERDICTS:
         errors.append("verdict has an unsupported value")
     repository = data.get("repository")
@@ -657,17 +743,25 @@ def validate_receipt_dict(data: dict[str, Any]) -> None:
             errors.append("codex.raw_trace_persisted must be false")
         if not isinstance(codex.get("messages_included"), bool):
             errors.append("codex.messages_included must be boolean")
-    for key in (
-        "commands",
-        "evidence",
-        "claims",
-        "warnings",
-        "redactions",
-        "unknown_events",
-        "parse_errors",
-    ):
+    for key in ("issue", "verification", "agents"):
+        if not isinstance(data.get(key), dict):
+            errors.append(f"{key} must be an object")
+    if data.get("baseline") is not None and not isinstance(data.get("baseline"), dict):
+        errors.append("baseline must be an object or null")
+    for key in ("commands", "evidence", "claims"):
         if not isinstance(data.get(key), list):
             errors.append(f"{key} must be an array")
+        elif not all(isinstance(item, dict) for item in data[key]):
+            errors.append(f"{key} items must be objects")
+    for key in ("warnings", "redactions", "unknown_events"):
+        if not isinstance(data.get(key), list):
+            errors.append(f"{key} must be an array")
+        elif not all(isinstance(item, str) for item in data[key]):
+            errors.append(f"{key} items must be strings")
+    if not isinstance(data.get("parse_errors"), list):
+        errors.append("parse_errors must be an array")
+    elif not all(isinstance(item, dict) for item in data["parse_errors"]):
+        errors.append("parse_errors items must be objects")
     if errors:
         raise SchemaValidationError("receipt validation failed: " + "; ".join(errors))
 
@@ -791,11 +885,10 @@ def write_receipt_files(
         directory = output
         json_path = directory / "receipt.json"
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        if directory.is_symlink():
-            raise DependencyError(f"receipt output directory must not be a symlink: {directory}")
+        root = ensure_output_dir(directory)
+        json_path = safe_output_file(root, json_path.name)
         json_path.write_text(receipt.to_json(), encoding="utf-8", newline="\n")
-        markdown_path = json_path.with_name("receipt.md")
+        markdown_path = safe_output_file(root, "receipt.md")
         markdown_path.write_text(render_receipt(receipt), encoding="utf-8", newline="\n")
     except OSError as exc:
         raise DependencyError(f"could not write receipt files under {directory}: {exc}") from exc

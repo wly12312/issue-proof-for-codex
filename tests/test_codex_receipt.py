@@ -1,3 +1,4 @@
+import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -65,6 +66,7 @@ def test_receipt_redacts_absolute_execution_paths(tmp_path) -> None:
     execution = receipt.as_dict()["baseline"]["execution"]
     assert execution["cwd"] == "<absolute-path>"
     assert execution["argv"][0] == "<absolute-path>"
+    assert r"C:\Users\person" not in execution["display_command"]
     assert "C:\\Users\\person" not in receipt.to_json()
 
 
@@ -103,7 +105,13 @@ def test_receipt_downgrades_when_trace_event_limit_truncates_evidence(tmp_path) 
         "reproduction": {"outcome": "reproduced"},
         "execution": {"argv": ["verify"], "exit_code": 1, "timed_out": False},
     }
-    verification = {"verification": {"outcome": "verified", "reason": "passed"}}
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "passed",
+            "baseline_run_id": "baseline-run",
+        }
+    }
     command = {"argv": ["verify"], "exit_code": 0, "timed_out": False}
 
     receipt = build_receipt(
@@ -168,7 +176,13 @@ def test_receipt_rejects_verified_outcome_that_conflicts_with_command(
         "reproduction": {"outcome": "reproduced"},
         "execution": {"argv": ["verify"], "exit_code": 1, "timed_out": False},
     }
-    verification = {"verification": {"outcome": "verified", "reason": "claimed pass"}}
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "claimed pass",
+            "baseline_run_id": "baseline-run",
+        }
+    }
 
     receipt = build_receipt(
         parse_trace(trace),
@@ -213,7 +227,13 @@ def test_receipt_rejects_verified_outcome_that_conflicts_with_command(
 )
 def test_receipt_rejects_verified_outcome_with_invalid_baseline(baseline, expected_verdict) -> None:
     trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
-    verification = {"verification": {"outcome": "verified", "reason": "claimed pass"}}
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "claimed pass",
+            "baseline_run_id": "baseline-run",
+        }
+    }
     command = {"argv": ["verify"], "exit_code": 0, "timed_out": False}
 
     receipt = build_receipt(
@@ -235,7 +255,13 @@ def test_claim_command_evidence_id_exists_in_receipt_evidence() -> None:
         "reproduction": {"outcome": "reproduced"},
         "execution": {"argv": ["verify"], "exit_code": 1, "timed_out": False},
     }
-    verification = {"verification": {"outcome": "verified", "reason": "passed"}}
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "passed",
+            "baseline_run_id": "baseline-run",
+        }
+    }
     command = {"argv": ["verify"], "exit_code": 0, "timed_out": False}
     receipt = build_receipt(
         parse_trace(trace),
@@ -254,3 +280,212 @@ def test_claim_command_evidence_id_exists_in_receipt_evidence() -> None:
     evidence_ids = {item["id"] for item in receipt.evidence}
     assert receipt.claims[0]["status"] == "supported"
     assert set(receipt.claims[0]["evidence_ids"]) <= evidence_ids
+
+
+def test_receipt_compares_raw_argv_before_absolute_path_redaction() -> None:
+    trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
+    baseline = {
+        "run_id": "baseline-run",
+        "reproduction": {"outcome": "reproduced"},
+        "execution": {
+            "argv": [r"C:\baseline\verify.exe"],
+            "exit_code": 1,
+            "timed_out": False,
+        },
+    }
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "claimed pass",
+            "baseline_run_id": "baseline-run",
+        }
+    }
+    command = {"argv": [r"D:\different\verify.exe"], "exit_code": 0, "timed_out": False}
+
+    receipt = build_receipt(
+        parse_trace(trace),
+        baseline=baseline,
+        verification=verification,
+        verification_command=command,
+    )
+
+    assert receipt.verification["same_argv"] is False
+    assert receipt.verification["outcome"] == "inconclusive"
+    assert receipt.verdict == "inconclusive"
+
+
+def test_receipt_rejects_verification_for_a_different_baseline_run() -> None:
+    trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
+    baseline = {
+        "run_id": "baseline-a",
+        "reproduction": {"outcome": "reproduced"},
+        "execution": {"argv": ["verify"], "exit_code": 1, "timed_out": False},
+    }
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "claimed pass",
+            "baseline_run_id": "baseline-b",
+        }
+    }
+    command = {"argv": ["verify"], "exit_code": 0, "timed_out": False}
+
+    receipt = build_receipt(
+        parse_trace(trace),
+        baseline=baseline,
+        verification=verification,
+        verification_command=command,
+    )
+
+    assert receipt.verification["outcome"] == "inconclusive"
+    assert "baseline run" in receipt.verification["reason"].lower()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("generated_at", "not-a-date"),
+        ("issue", []),
+        ("verification", []),
+        ("agents", []),
+        ("commands", [1]),
+        ("evidence", [None]),
+        ("claims", ["claim"]),
+        ("warnings", [1]),
+        ("parse_errors", ["error"]),
+    ],
+)
+def test_receipt_validator_rejects_values_forbidden_by_repository_schema(field, value) -> None:
+    trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
+    data = build_receipt(parse_trace(trace)).as_dict()
+    data[field] = value
+
+    with pytest.raises(SchemaValidationError):
+        validate_receipt_dict(data)
+
+
+def test_empty_trace_cannot_produce_verified_receipt(tmp_path) -> None:
+    trace_path = tmp_path / "empty.jsonl"
+    trace_path.write_text("", encoding="utf-8")
+    baseline = {
+        "run_id": "baseline-run",
+        "reproduction": {"outcome": "reproduced"},
+        "execution": {"argv": ["verify"], "exit_code": 1, "timed_out": False},
+    }
+    verification = {
+        "verification": {
+            "outcome": "verified",
+            "reason": "claimed pass",
+            "baseline_run_id": "baseline-run",
+        }
+    }
+
+    receipt = build_receipt(
+        parse_trace(trace_path),
+        baseline=baseline,
+        verification=verification,
+        verification_command={"argv": ["verify"], "exit_code": 0, "timed_out": False},
+    )
+
+    assert receipt.verdict == "inconclusive"
+
+
+def test_truncated_trace_takes_precedence_over_direct_refutation(tmp_path) -> None:
+    trace_path = tmp_path / "limited.jsonl"
+    trace_path.write_text(
+        '{"type":"thread.started","thread_id":"one"}\n{"type":"turn.completed"}\n',
+        encoding="utf-8",
+    )
+    summary = parse_trace(trace_path, limits=ParseLimits(max_events=1))
+
+    receipt = build_receipt(
+        summary,
+        verification={
+            "verification": {
+                "outcome": "not-fixed",
+                "reason": "claimed failure",
+                "baseline_run_id": "baseline-run",
+            }
+        },
+    )
+
+    assert summary.event_limit_reached is True
+    assert receipt.verdict == "inconclusive"
+
+
+def test_receipt_stream_metadata_describes_persisted_sanitized_summary() -> None:
+    trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
+    baseline = {
+        "run_id": "baseline-run",
+        "reproduction": {"outcome": "reproduced"},
+        "execution": {
+            "argv": ["verify"],
+            "exit_code": 1,
+            "timed_out": False,
+            "stdout": {
+                "summary": "token=super-secret",
+                "sha256": "0" * 64,
+                "captured_bytes": 18,
+                "truncated": False,
+                "redacted": False,
+            },
+        },
+    }
+
+    receipt = build_receipt(parse_trace(trace), baseline=baseline)
+    stream = receipt.baseline["execution"]["stdout"]
+    persisted = stream["summary"]
+
+    assert persisted == "token=[REDACTED]"
+    assert stream["sha256"] == hashlib.sha256(persisted.encode("utf-8")).hexdigest()
+    assert stream["captured_bytes"] == len(persisted.encode("utf-8"))
+    assert stream["redacted"] is True
+
+
+@pytest.mark.parametrize(
+    ("argv", "cwd"),
+    [
+        ([r"C:private\runner.exe"], r"\Users\person"),
+        ([r"\\?\C:\Users\person\runner.exe"], r"\\server\share\person"),
+        (["/private/runner"], "/Users/person"),
+    ],
+)
+def test_receipt_projects_all_rooted_or_drive_qualified_windows_paths(argv, cwd) -> None:
+    trace = Path(__file__).parents[1] / "examples" / "codex-maintenance" / "trace-order-a.jsonl"
+    baseline = {
+        "run_id": "baseline-run",
+        "reproduction": {"outcome": "reproduced"},
+        "execution": {"argv": argv, "cwd": cwd, "exit_code": 1, "timed_out": False},
+    }
+
+    receipt = build_receipt(parse_trace(trace), baseline=baseline)
+    execution = receipt.baseline["execution"]
+
+    assert execution["argv"] == ["<absolute-path>"]
+    assert execution["cwd"] == "<absolute-path>"
+
+
+def test_trace_command_paths_are_projected_before_receipt_persistence(tmp_path) -> None:
+    trace = tmp_path / "absolute-command.jsonl"
+    trace.write_text(
+        json.dumps(
+            {
+                "type": "command_execution",
+                "argv": [r"C:\Users\alice\private\runner.exe", r"\\server\share\input.txt"],
+                "display_command": (r"C:\Users\alice\private\runner.exe \\server\share\input.txt"),
+                "cwd": r"C:\Users\alice\private",
+                "exit_code": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    receipt = build_receipt(parse_trace(trace))
+    serialized = receipt.to_json()
+    command = receipt.commands[0]
+
+    assert command["argv"] == ["<absolute-path>", "<absolute-path>"]
+    assert command["cwd"] == "<absolute-path>"
+    assert "alice" not in serialized
+    assert "server" not in serialized

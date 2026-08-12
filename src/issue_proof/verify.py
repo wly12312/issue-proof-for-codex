@@ -7,6 +7,16 @@ from pathlib import Path
 from .collector import _execution_info, _warnings_for_execution, detect_runtime, inspect_repository
 from .executor import ExecutionLimits, execute_argv, parse_command
 from .models import Report, new_report
+from .redact import redact_text
+
+
+def _argv_can_be_compared(baseline_argv: list[str], current_argv: list[str]) -> bool:
+    return (
+        bool(baseline_argv)
+        and bool(current_argv)
+        and not any("[REDACTED]" in item for item in baseline_argv)
+        and not any(redact_text(item).redacted for item in current_argv)
+    )
 
 
 def verify_argv_against_baseline(
@@ -22,12 +32,18 @@ def verify_argv_against_baseline(
     string.  This keeps Windows paths with spaces and literal arguments stable.
     """
 
-    del repo_root
+    current_repository, _ = inspect_repository(repo_root)
     baseline_execution = baseline.execution
     baseline_outcome = baseline.reproduction.get("outcome")
     timed_out = bool(execution.get("timed_out", False))
     exit_code = execution.get("exit_code")
-    if baseline_outcome != "reproduced":
+    if baseline.repository.root != current_repository.root:
+        outcome = "inconclusive"
+        reason = "Verification repository differs from the baseline repository."
+    elif not _argv_can_be_compared(baseline_execution.argv, argv):
+        outcome = "inconclusive"
+        reason = "The exact baseline and verification argv cannot be compared after redaction."
+    elif baseline_outcome != "reproduced":
         outcome = "inconclusive"
         reason = "Baseline was not a completed reproduced run, so a fix cannot be inferred."
     elif (
@@ -82,16 +98,25 @@ def verify_against_baseline(
     argv = parse_command(command)
     current_repository, warnings = inspect_repository(repo_root)
     runtime = detect_runtime()
-    result = execute_argv(argv, cwd=Path(current_repository.root), limits=limits)
+    result = execute_argv(argv, cwd=repo_root.resolve(), limits=limits)
     execution = _execution_info(result)
     execution_warnings, security_events = _warnings_for_execution(execution)
     warnings.extend(execution_warnings)
     notes = [
-        "Verification re-used the explicitly supplied command and did not modify source files.",
+        (
+            "IssueProof did not edit source files; the explicitly supplied command may have "
+            "side effects."
+        ),
         "A single baseline run cannot establish deterministic reproduction or causality.",
     ]
     baseline_execution = baseline.execution
-    if baseline.reproduction.get("outcome") != "reproduced":
+    if baseline.repository.root != current_repository.root:
+        outcome = "inconclusive"
+        reason = "Verification repository differs from the baseline repository."
+    elif not _argv_can_be_compared(baseline_execution.argv, argv):
+        outcome = "inconclusive"
+        reason = "The exact baseline and verification argv cannot be compared after redaction."
+    elif baseline.reproduction.get("outcome") != "reproduced":
         outcome = "inconclusive"
         reason = "Baseline was not a completed reproduced run, so a fix cannot be inferred."
     elif (

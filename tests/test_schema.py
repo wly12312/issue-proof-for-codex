@@ -173,3 +173,20 @@ def test_report_validator_enforces_nested_schema_constraints(tmp_path) -> None:
     for data in cases:
         with pytest.raises(SchemaValidationError):
             validate_report_dict(data)
+
+
+@pytest.mark.parametrize("path", [r"C:relative.txt", r"\rooted.txt"])
+def test_report_validator_rejects_windows_rooted_artifact_paths(tmp_path, path) -> None:
+    from issue_proof.collector import collect_from_issue_file
+
+    report, _, _ = collect_from_issue_file(
+        issue_file=Path(__file__).parent / "fixtures" / "issue.md",
+        repo_root=Path(__file__).parents[1],
+        command=None,
+        output_dir=tmp_path / "artifact-path",
+    )
+    data = report.as_dict()
+    data["artifacts"][0]["path"] = path
+
+    with pytest.raises(SchemaValidationError):
+        validate_report_dict(data)

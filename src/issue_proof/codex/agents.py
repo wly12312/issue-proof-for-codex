@@ -11,7 +11,7 @@ from typing import Any
 from ..errors import DependencyError, OutputPathError
 from ..redact import redact_text
 
-_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+_ABSOLUTE_WINDOWS = re.compile(r"^(?:[A-Za-z]:|[\\/])")
 AGENT_FILENAMES = ("AGENTS.override.md", "AGENTS.md")
 
 

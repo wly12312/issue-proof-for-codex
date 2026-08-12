@@ -1,21 +1,27 @@
 # Codex event adapter reference
 
-The official Codex CLI documentation describes `codex exec --json` as a JSONL stream and documents
-outer event families such as `thread.*`, `turn.*`, `item.*`, and `error`. It gives examples for
-thread start, command execution item, agent message item, and turn completion. Nested item payloads
-are not treated as a permanent schema here.
+## Support boundary
 
-Use the adapter as follows:
+- Officially supported: Windows 10/11.
+- Tested: Windows with Python 3.11, 3.12, and 3.14.
+- Linux/macOS: unsupported, untested, and unverified.
 
-- Strongly type only the documented outer event/type strings and locally tested projections.
+The adapter imports an explicitly supplied `codex exec --json`-style JSONL stream. It recognizes
+documented outer families such as `thread.*`, `turn.*`, `item.*`, and `error`, plus locally tested
+projections of command, tool, file-change, and message items. Nested payloads are not assumed to be
+a permanent schema.
+
+Use these interpretation rules:
+
 - Keep command evidence separate from tool calls, file changes, and messages.
-- Never persist raw prompt, assistant reasoning, tool arguments, stdout, or stderr without sanitizing
-  and bounding it.
-- Count unknown events and preserve only type/key metadata.
-- In lenient mode, continue after a corrupt line with its line number; strict mode stops.
-- Treat this adapter as `experimental-compatible` and inspect receipt warnings before relying on it.
+- Sanitize and bound arguments, stdout, stderr, messages, paths, and metadata before persistence.
+- Never treat an assistant message, tool-call narrative, or unknown payload as independent proof.
+- Count unknown events and retain only bounded type/key metadata. Inspect them before relying on a
+  receipt; they are not positive evidence.
+- In lenient mode, continue after a corrupt line where possible and retain its line number. In
+  strict mode, stop at the first parse error.
+- Missing, corrupt, event-limit-truncated, or empty trace evidence cannot support a verified receipt.
+- Treat the adapter label `experimental-compatible` as a version-compatibility warning.
 
-Official references:
-
-- https://learn.chatgpt.com/docs/non-interactive-mode
-- https://learn.chatgpt.com/docs/developer-commands?surface=cli
+Trace ingestion reads only the explicit path. It does not scan `$env:USERPROFILE\.codex`, start
+Codex, make an OpenAI API request, or copy the raw JSONL into the output directory.

@@ -31,8 +31,12 @@ def main() -> int:
         encoding="utf-8",
     )
     print(f"fixture: {root}")
-    print("baseline: python src/bug_fixture.py  # exits 1 before the simulated fix")
-    print("fix: create fixed.marker, then rerun the same argv")
+    print(
+        "baseline: issue-proof collect --issue-file .\\issue.md --command "
+        "'python src/bug_fixture.py' --output .\\baseline --repo-root ."
+    )
+    print("simulated fix: New-Item -ItemType File -Path .\\fixed.marker -Force")
+    print("verification: use issue-proof codex verify with .\\verify-command.json")
     return 0
 
 

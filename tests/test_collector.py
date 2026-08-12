@@ -57,3 +57,22 @@ def test_invalid_utf8_is_reported(tmp_path) -> None:
     )
     assert any("invalid UTF-8" in warning for warning in report.warnings)
     assert "\ufffd" in report.issue.body_excerpt
+
+
+def test_redacted_repository_display_path_is_not_reused_as_command_cwd(tmp_path) -> None:
+    repo = tmp_path / "token=super-secret" / "Unicode 空格 repo"
+    repo.mkdir(parents=True)
+    init_git_repo(repo)
+    issue = repo / "issue.md"
+    issue.write_text("# Path control boundary\n", encoding="utf-8")
+
+    report, _, _ = collect_from_issue_file(
+        issue_file=issue,
+        repo_root=repo,
+        command=python_command("from pathlib import Path; print(Path.cwd().name)"),
+        output_dir=repo / "out",
+    )
+
+    assert report.execution.exit_code == 0
+    assert "Unicode " in report.execution.stdout["summary"]
+    assert "super-secret" not in report.repository.root

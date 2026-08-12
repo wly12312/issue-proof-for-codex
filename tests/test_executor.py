@@ -1,3 +1,4 @@
+import io
 import os
 import subprocess
 import sys
@@ -6,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from issue_proof.errors import CommandParseError
+from issue_proof.errors import CommandParseError, DependencyError
 from issue_proof.executor import (
     ExecutionLimits,
     _terminate_process_tree,
@@ -28,6 +29,29 @@ def test_parse_command_rejects_shell_syntax() -> None:
 def test_parse_command_supports_quoted_windows_path() -> None:
     argv = parse_command(r'python "C:\Program Files\Example\bug.py" --flag')
     assert argv == ["python", r"C:\Program Files\Example\bug.py", "--flag"]
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("tool C:\\temp\\", ["tool", "C:\\temp\\"]),
+        (
+            'tool "C:\\Program Files\\Example\\"',
+            ["tool", "C:\\Program Files\\Example\\"],
+        ),
+        (
+            'tool "\\\\server\\share\\Unicode 路径\\"',
+            ["tool", "\\\\server\\share\\Unicode 路径\\"],
+        ),
+    ],
+)
+def test_parse_command_treats_windows_backslashes_as_path_characters(command, expected) -> None:
+    assert parse_command(command) == expected
+
+
+def test_windows_backslash_does_not_escape_shell_operator() -> None:
+    with pytest.raises(CommandParseError):
+        parse_command(r"echo first \| more")
 
 
 def test_parse_command_preserves_explicit_empty_arguments() -> None:
@@ -85,6 +109,65 @@ def test_windows_taskkill_failure_falls_back_to_parent_kill(monkeypatch) -> None
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-only process-tree termination contract")
+def test_windows_taskkill_success_still_kills_parent_when_process_is_alive(monkeypatch) -> None:
+    class FakeProcess:
+        pid = 123
+        killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+    process = FakeProcess()
+    monkeypatch.setattr(
+        "issue_proof.executor.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode=0),
+    )
+
+    _terminate_process_tree(process)
+
+    assert process.killed is True
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only process-tree termination contract")
+def test_execute_timeout_does_not_leak_final_wait_timeout(tmp_path, monkeypatch) -> None:
+    class FakeProcess:
+        pid = 123
+        returncode = None
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+        killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout):
+            raise subprocess.TimeoutExpired(["fixture"], timeout)
+
+    process = FakeProcess()
+    monkeypatch.setattr("issue_proof.executor.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "issue_proof.executor.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode=0),
+    )
+
+    result = execute_argv(
+        ["fixture"],
+        cwd=tmp_path,
+        limits=ExecutionLimits(timeout_seconds=0.1, max_output_bytes=1000),
+    )
+
+    assert result.timed_out is True
+    assert result.exit_code is None
+    assert process.killed is True
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only process-tree termination contract")
 def test_execute_timeout_terminates_spawned_child(tmp_path) -> None:
     probe = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
@@ -128,6 +211,38 @@ def test_execute_timeout_terminates_spawned_child(tmp_path) -> None:
 def test_empty_command_is_rejected() -> None:
     with pytest.raises(CommandParseError):
         parse_command(" ")
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [""],
+        [sys.executable, None],
+        ["bad\x00executable"],
+        [sys.executable, "bad\x00argument"],
+    ],
+)
+def test_execute_rejects_invalid_argv_before_starting_process(tmp_path, argv) -> None:
+    with pytest.raises(CommandParseError):
+        execute_argv(argv, cwd=tmp_path)
+
+
+def test_execute_preserves_non_leading_empty_argument(tmp_path) -> None:
+    result = execute_argv(
+        [sys.executable, "-c", "import sys; print(repr(sys.argv[1]))", ""],
+        cwd=tmp_path,
+        limits=ExecutionLimits(timeout_seconds=5),
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.summary.strip() == "''"
+
+
+def test_execute_fails_cleanly_on_unsupported_platform(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("issue_proof.executor.sys.platform", "linux")
+
+    with pytest.raises(DependencyError, match="Windows"):
+        execute_argv(["fixture"], cwd=tmp_path)
 
 
 def test_file_limit_is_validated() -> None:

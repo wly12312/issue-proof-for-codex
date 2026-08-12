@@ -1,10 +1,11 @@
 include README.md LICENSE CONTRIBUTING.md SECURITY.md pyproject.toml .gitignore .gitattributes
 recursive-include src/issue_proof *.py
 recursive-include tests *.py *.md
-recursive-include tests/fixtures *
-recursive-include examples *.py *.md *.json *.jsonl
+recursive-include examples *.py *.md
+include examples/codex-maintenance/claims.json
+include examples/codex-maintenance/verify-command.json
 recursive-include schemas *.json
-recursive-include skills *
+recursive-include skills *.md *.yaml *.py
 recursive-include docs *.md
 recursive-include .github *.yml
 recursive-include .codex-plugin *.json
@@ -17,8 +18,21 @@ global-exclude .coverage.*
 global-exclude *.log
 global-exclude .env
 global-exclude .env.*
+global-exclude .envrc
+global-exclude *.local
+global-exclude *.local.*
+global-exclude *.pem
+global-exclude *.key
+global-exclude *.p12
+global-exclude *.pfx
+global-exclude *.jsonl
 prune .issue-proof
 prune build
 prune dist
+prune logs
+prune receipts
+prune evidence
 prune src/oss_issue_proof.egg-info
 exclude src/oss_issue_proof.egg-info/*
+include examples/codex-maintenance/trace-order-a.jsonl
+include examples/codex-maintenance/trace-order-b.jsonl

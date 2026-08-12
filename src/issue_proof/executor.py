@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import shlex
-import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -49,15 +47,8 @@ class ExecutionResult:
 
 def _has_unquoted_shell_operator(command: str) -> str | None:
     quote: str | None = None
-    escaped = False
     operators = set("|&;<>()`\n\r")
     for char in command:
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\" and quote != "'":
-            escaped = True
-            continue
         if quote:
             if char == quote:
                 quote = None
@@ -68,8 +59,6 @@ def _has_unquoted_shell_operator(command: str) -> str | None:
             return char
     if quote:
         return "unclosed quote"
-    if escaped:
-        return "trailing escape"
     return None
 
 
@@ -104,16 +93,6 @@ def _split_argv(command: str) -> list[str]:
     index = 0
     while index < len(command):
         char = command[index]
-        if char == "\\" and os.name != "nt":
-            token_started = True
-            next_char = command[index + 1] if index + 1 < len(command) else ""
-            if next_char in {'"', "'", "\\", " ", "\t", "\r", "\n"}:
-                current.append(next_char)
-                index += 2
-                continue
-            current.append(char)
-            index += 1
-            continue
         if quote:
             if char == quote:
                 quote = None
@@ -167,27 +146,35 @@ def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     try:
-        if os.name == "nt":
-            result = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                shell=False,
-                timeout=5,
-            )
-            if result.returncode != 0 and process.poll() is None:
-                process.kill()
-        else:
-            os.killpg(process.pid, signal.SIGTERM)
-            time.sleep(0.1)
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=False,
+            timeout=5,
+        )
     except (OSError, subprocess.SubprocessError):
-        try:
+        pass
+    try:
+        if process.poll() is None:
             process.kill()
+    except OSError:
+        pass
+
+
+def _wait_after_termination(process: subprocess.Popen[bytes]) -> None:
+    for _ in range(2):
+        try:
+            process.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                return
         except OSError:
-            pass
+            return
 
 
 def _stream_result(holder: dict[str, object]) -> StreamResult:
@@ -213,8 +200,14 @@ def execute_argv(
 ) -> ExecutionResult:
     """Run argv with shell=False, bounded streams, and a process-tree timeout."""
 
-    if not argv:
+    if not isinstance(argv, list) or not argv:
         raise CommandParseError("command argv must not be empty")
+    if not all(isinstance(item, str) for item in argv):
+        raise CommandParseError("command argv must contain only strings")
+    if not argv[0]:
+        raise CommandParseError("command executable must not be empty")
+    if any("\x00" in item for item in argv):
+        raise CommandParseError("command argv contains a NUL byte")
     if not cwd.exists() or not cwd.is_dir():
         raise DependencyError(f"command cwd does not exist or is not a directory: {cwd}")
     selected = limits or ExecutionLimits()
@@ -224,20 +217,19 @@ def execute_argv(
         raise CommandParseError("max output bytes must be greater than zero")
     if selected.max_files <= 0:
         raise CommandParseError("max files must be greater than zero")
+    if sys.platform != "win32":
+        raise DependencyError("command execution is supported only on Windows 10/11")
 
     started = clock()
     start_monotonic = time.monotonic()
-    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     popen_kwargs: dict[str, object] = {
         "cwd": str(cwd),
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "shell": False,
-        "creationflags": creationflags,
+        "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,
     }
-    if os.name != "nt":
-        popen_kwargs["start_new_session"] = True
     try:
         process = subprocess.Popen(argv, **popen_kwargs)  # type: ignore[arg-type]
     except FileNotFoundError as exc:
@@ -265,14 +257,14 @@ def execute_argv(
     except subprocess.TimeoutExpired:
         timed_out = True
         _terminate_process_tree(process)
-        process.wait(timeout=5)
+        _wait_after_termination(process)
     stdout_thread.join(timeout=5)
     stderr_thread.join(timeout=5)
     finished = clock()
     duration = round(max(0.0, time.monotonic() - start_monotonic), 6)
     return ExecutionResult(
         argv=list(argv),
-        display_command=shlex.join(argv),
+        display_command=subprocess.list2cmdline(argv),
         cwd=str(cwd),
         started_at=started,
         finished_at=finished,

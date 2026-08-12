@@ -23,6 +23,9 @@ permissions:
 jobs:
   receipt:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,9 +45,13 @@ jobs:
         id: trace
         shell: pwsh
         run: |
-          $trace = Get-ChildItem -LiteralPath .issue-proof/input-trace -Recurse -File -Filter *.jsonl |
-            Select-Object -First 1
-          if (-not $trace) { throw "No JSONL trace found in the downloaded artifact" }
+          $traces = @(
+            Get-ChildItem -LiteralPath .issue-proof/input-trace -Recurse -File -Filter *.jsonl
+          )
+          if ($traces.Count -ne 1) {
+            throw "Expected exactly one JSONL trace; found $($traces.Count)"
+          }
+          $trace = $traces[0]
           "path=$($trace.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Download optional baseline
         if: ${{ inputs.report_artifact != '' }}
@@ -59,25 +66,35 @@ jobs:
         id: baseline
         shell: pwsh
         run: |
-          $report = Get-ChildItem -LiteralPath .issue-proof/input-report -Recurse -File -Filter report.json |
-            Select-Object -First 1
-          if (-not $report) { throw "No report.json found in the downloaded artifact" }
+          $reports = @(
+            Get-ChildItem -LiteralPath .issue-proof/input-report -Recurse -File -Filter report.json
+          )
+          if ($reports.Count -ne 1) {
+            throw "Expected exactly one report.json baseline; found $($reports.Count)"
+          }
+          $report = $reports[0]
           "path=$($report.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Generate draft receipt with baseline
         if: ${{ inputs.report_artifact != '' }}
+        env:
+          TRACE_PATH: ${{ steps.trace.outputs.path }}
+          BASELINE_PATH: ${{ steps.baseline.outputs.path }}
         run: >-
           issue-proof codex receipt
-          --trace "${{ steps.trace.outputs.path }}"
-          --baseline "${{ steps.baseline.outputs.path }}"
+          --trace "$env:TRACE_PATH"
+          --baseline "$env:BASELINE_PATH"
           --output .issue-proof/receipt.json
       - name: Generate draft receipt without baseline
         if: ${{ inputs.report_artifact == '' }}
+        env:
+          TRACE_PATH: ${{ steps.trace.outputs.path }}
         run: >-
           issue-proof codex receipt
-          --trace "${{ steps.trace.outputs.path }}"
+          --trace "$env:TRACE_PATH"
           --output .issue-proof/receipt.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: issue-proof-codex-receipt
           path: .issue-proof/receipt.*
           if-no-files-found: error
+          include-hidden-files: true

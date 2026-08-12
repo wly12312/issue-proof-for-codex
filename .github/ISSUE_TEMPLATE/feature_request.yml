@@ -1,19 +1,42 @@
 name: Feature request
-description: Suggest a focused improvement
+description: Suggest a focused improvement within the existing Windows-only scope
 title: "feature: "
 labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Officially supported: Windows 10/11.
+        Tested: Windows with Python 3.11, 3.12, and 3.14.
+        Linux/macOS: unsupported, untested, and unverified.
+
+        This project is Windows-only. Linux, macOS, POSIX process-control, new services, telemetry,
+        autonomous repair, and automatic private Codex-state capture are outside the current scope.
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What maintainer workflow is currently blocked?
+      label: Existing workflow problem
+      description: What current Windows maintenance workflow is blocked, and which shipped command or contract is involved?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Provide sanitized, reproducible observations from an existing feature. Do not fabricate adoption or usage data.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposal
-      description: Describe the smallest safe behavior that would help.
+      label: Smallest safe change
+      description: Describe the smallest change that preserves explicit authorization, privacy, evidence conservatism, and Windows support.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: State what this request will not add or automate.
     validations:
       required: true
