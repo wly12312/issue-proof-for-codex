@@ -69,10 +69,12 @@ def test_redacted_repository_display_path_is_not_reused_as_command_cwd(tmp_path)
     report, _, _ = collect_from_issue_file(
         issue_file=issue,
         repo_root=repo,
-        command=python_command("from pathlib import Path; print(Path.cwd().name)"),
+        command=python_command(
+            "from pathlib import Path; print(Path.cwd().name == 'Unicode 空格 repo')"
+        ),
         output_dir=repo / "out",
     )
 
     assert report.execution.exit_code == 0
-    assert "Unicode " in report.execution.stdout["summary"]
+    assert report.execution.stdout["summary"].strip() == "True"
     assert "super-secret" not in report.repository.root
