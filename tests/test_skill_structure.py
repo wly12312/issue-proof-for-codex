@@ -120,7 +120,7 @@ def test_skill_delegate_does_not_execute_checkout_local_cli_lookalike(tmp_path) 
     assert result.stdout.strip() == EXPECTED_VERSION
 
 
-def test_release_metadata_matches_current_v0_1_3_tag() -> None:
+def test_release_metadata_matches_current_v0_1_4_tag() -> None:
     root = Path(__file__).parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     plugin = json.loads((root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
