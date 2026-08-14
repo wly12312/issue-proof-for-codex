@@ -52,13 +52,13 @@ $Python = (Resolve-Path '.\.venv\Scripts\python.exe').Path
 & $Python -m issue_proof doctor
 ```
 
-After downloading the `0.1.3` wheel from the matching GitHub Release, install it into a clean
+After downloading the `0.1.4` wheel from the matching GitHub Release, install it into a clean
 environment with:
 
 ```powershell
 py -3.12 -m venv .venv
 $Python = (Resolve-Path '.\.venv\Scripts\python.exe').Path
-& $Python -m pip install '.\oss_issue_proof-0.1.3-py3-none-any.whl'
+& $Python -m pip install '.\oss_issue_proof-0.1.4-py3-none-any.whl'
 & $Python -m issue_proof doctor
 ```
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import issue_proof
 
-EXPECTED_VERSION = "0.1.3"
+EXPECTED_VERSION = "0.1.4"
 
 
 def test_skill_frontmatter_and_resources_follow_contract() -> None:
