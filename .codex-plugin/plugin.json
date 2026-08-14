@@ -9,12 +9,12 @@
   "interface": {
     "displayName": "IssueProof for Codex",
     "shortDescription": "Draft Windows maintenance verification receipts.",
-    "longDescription": "Skills-only plugin for supported Windows 10/11 hosts. With a separately installed issue-proof CLI, it guides explicit baseline reproduction, Codex JSONL import, same-argv independent verification, and redacted draft receipts. Tested with Python 3.11, 3.12, and 3.14. Linux and macOS are unsupported, untested, and unverified. It does not post, push, publish, start Codex, or read private Codex state.",
+    "longDescription": "Skills-only plugin for supported Windows 10/11 hosts. With a separately installed issue-proof CLI, it guides GitHub-connector intake, canonical argv collection, two-run baseline reproduction, same-identity verification, and redacted draft receipts; Codex JSONL is optional enrichment. Tested with Python 3.11, 3.12, and 3.14. Linux and macOS are unsupported, untested, and unverified. It does not post, push, publish, start Codex, or read private Codex state.",
     "developerName": "oss-issue-proof contributors",
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": [
-      "Use the separately installed issue-proof CLI on Windows to reproduce an OSS issue, verify the same argv, and draft a receipt."
+      "Collect two baselines, verify the same canonical argv, and draft an IssueProof receipt on Windows."
     ]
   }
 }

@@ -51,6 +51,8 @@ class RepositoryInfo:
     head_sha: str | None
     branch: str | None
     dirty: bool | None
+    identity: str | None = None
+    identity_mode: str = "local"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +61,8 @@ class RepositoryInfo:
             "head_sha": self.head_sha,
             "branch": self.branch,
             "dirty": self.dirty,
+            "identity": self.identity,
+            "identity_mode": self.identity_mode,
         }
 
 
@@ -74,6 +78,12 @@ class ExecutionInfo:
     timed_out: bool
     stdout: dict[str, Any]
     stderr: dict[str, Any]
+    timeout_seconds: float | None = None
+    termination_policy: str | None = None
+    capture_limits: dict[str, Any] | None = None
+    argv_identity: str | None = None
+    cwd_identity: str | None = None
+    timeout_policy_identity: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +97,12 @@ class ExecutionInfo:
             "timed_out": self.timed_out,
             "stdout": self.stdout,
             "stderr": self.stderr,
+            "timeout_seconds": self.timeout_seconds,
+            "termination_policy": self.termination_policy,
+            "capture_limits": self.capture_limits,
+            "argv_identity": self.argv_identity,
+            "cwd_identity": self.cwd_identity,
+            "timeout_policy_identity": self.timeout_policy_identity,
         }
 
 
@@ -162,6 +178,12 @@ def empty_execution() -> ExecutionInfo:
         timed_out=False,
         stdout=empty_stream.copy(),
         stderr=empty_stream.copy(),
+        timeout_seconds=None,
+        termination_policy=None,
+        capture_limits=None,
+        argv_identity=None,
+        cwd_identity=None,
+        timeout_policy_identity=None,
     )
 
 
@@ -315,7 +337,7 @@ def validate_report_dict(data: dict[str, Any]) -> None:
     else:
         _reject_extra_fields(
             repository,
-            {"root", "remote_url", "head_sha", "branch", "dirty"},
+            {"root", "remote_url", "head_sha", "branch", "dirty", "identity", "identity_mode"},
             "repository.",
             errors,
         )
@@ -333,6 +355,13 @@ def validate_report_dict(data: dict[str, Any]) -> None:
             errors.append("repository.head_sha must look like a Git SHA")
         if not isinstance(repository.get("dirty"), (bool, type(None))):
             errors.append("repository.dirty must be boolean or null")
+        if repository.get("identity") is not None and (
+            not isinstance(repository.get("identity"), str)
+            or not HASH_RE.fullmatch(repository.get("identity", ""))
+        ):
+            errors.append("repository.identity must be a lowercase SHA-256 hash or null")
+        if repository.get("identity_mode", "local") not in {"github", "local"}:
+            errors.append("repository.identity_mode must be github or local")
 
     runtime = data.get("runtime")
     if not isinstance(runtime, dict):
@@ -364,6 +393,12 @@ def validate_report_dict(data: dict[str, Any]) -> None:
                 "timed_out",
                 "stdout",
                 "stderr",
+                "timeout_seconds",
+                "termination_policy",
+                "capture_limits",
+                "argv_identity",
+                "cwd_identity",
+                "timeout_policy_identity",
             },
             "execution.",
             errors,
@@ -399,6 +434,21 @@ def validate_report_dict(data: dict[str, Any]) -> None:
             errors.append("execution.timed_out must be boolean")
         _validate_stream(execution.get("stdout"), "execution.stdout", errors)
         _validate_stream(execution.get("stderr"), "execution.stderr", errors)
+        if not isinstance(execution.get("timeout_seconds"), (int, float, type(None))):
+            errors.append("execution.timeout_seconds must be a number or null")
+        elif (
+            isinstance(execution.get("timeout_seconds"), (int, float))
+            and execution["timeout_seconds"] <= 0
+        ):
+            errors.append("execution.timeout_seconds must be greater than zero")
+        if not isinstance(execution.get("termination_policy"), (str, type(None))):
+            errors.append("execution.termination_policy must be a string or null")
+        if not isinstance(execution.get("capture_limits"), (dict, type(None))):
+            errors.append("execution.capture_limits must be an object or null")
+        for key in ("argv_identity", "cwd_identity", "timeout_policy_identity"):
+            value = execution.get(key)
+            if value is not None and (not isinstance(value, str) or not HASH_RE.fullmatch(value)):
+                errors.append(f"execution.{key} must be a lowercase SHA-256 hash or null")
 
     artifacts = data.get("artifacts")
     if not isinstance(artifacts, list):
@@ -445,6 +495,14 @@ def validate_report_dict(data: dict[str, Any]) -> None:
         errors.append("verification must be an object")
     elif verification.get("outcome") not in VERIFICATION_OUTCOMES:
         errors.append("verification.outcome has an unsupported value")
+    if isinstance(verification, dict):
+        baseline_hash = verification.get("baseline_report_sha256")
+        if baseline_hash is not None and (
+            not isinstance(baseline_hash, str) or not HASH_RE.fullmatch(baseline_hash)
+        ):
+            errors.append(
+                "verification.baseline_report_sha256 must be a lowercase SHA-256 hash or null"
+            )
     for key in ("warnings", "security_events", "notes"):
         if not isinstance(data.get(key), list) or not all(
             isinstance(item, str) for item in data.get(key, [])

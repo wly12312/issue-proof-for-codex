@@ -1,4 +1,4 @@
 interface:
-  display_name: "Codex Maintenance Receipt"
-  short_description: "Windows issue reproduction and verification receipts"
-  default_prompt: "On supported Windows 10/11, use $reproduce-github-issue with a separately installed issue-proof CLI to baseline an issue, inspect an explicit Codex trace, independently verify the same argv, and draft a receipt."
+  display_name: "Issue Reproduction and Verification"
+  short_description: "One-conversation Windows issue evidence workflow"
+  default_prompt: "Use $reproduce-github-issue to read the Issue through the current Codex GitHub connector, create two command-argv baselines, edit and test only when authorized, independently verify, and create a local receipt without requiring a trace."

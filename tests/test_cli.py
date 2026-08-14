@@ -14,6 +14,38 @@ def python_command(code: str) -> str:
 def test_cli_collect_validate_render_verify(tmp_path, capsys) -> None:
     issue = tmp_path / "issue.md"
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "issue-proof@example.invalid"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "IssueProof Test"],
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "README.md").write_text("fixture\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "README.md"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "fixture"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/example/cli-fixture.git",
+        ],
+        check=True,
+        capture_output=True,
+    )
     issue.write_text("# CLI issue\n\nA deterministic failure.\n", encoding="utf-8")
     baseline_dir = tmp_path / "baseline"
     command = python_command(
@@ -31,6 +63,8 @@ def test_cli_collect_validate_render_verify(tmp_path, capsys) -> None:
                 str(baseline_dir),
                 "--repo-root",
                 str(tmp_path),
+                "--identity-mode",
+                "github",
             ]
         )
         == 0
@@ -52,6 +86,8 @@ def test_cli_collect_validate_render_verify(tmp_path, capsys) -> None:
                 str(fixed_dir),
                 "--repo-root",
                 str(tmp_path),
+                "--identity-mode",
+                "github",
             ]
         )
         == 0

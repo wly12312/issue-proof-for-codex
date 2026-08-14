@@ -97,8 +97,10 @@ def test_codex_verify_cli_runs_same_explicit_argv_and_writes_receipt(tmp_path) -
         == 0
     )
     data = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
-    assert data["verification"]["outcome"] == "verified"
-    assert data["verdict"] == "verified"
+    assert data["verification"]["outcome"] == "inconclusive"
+    assert data["verification"]["same_remote"] is None
+    assert data["verification"]["same_head"] is None
+    assert data["verdict"] == "inconclusive"
     assert data["verification"]["same_argv"] is True
 
 

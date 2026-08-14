@@ -1,9 +1,9 @@
 # IssueProof for Codex
 
 `oss-issue-proof` records privacy-filtered evidence for an explicitly selected open-source
-maintenance task. It can reproduce a failure, import an explicitly supplied Codex JSONL trace, run
-a matching verification command, and produce a redacted `CodexMaintenanceReceipt` for maintainer
-review.
+maintenance task. It can reproduce a failure, run a matching verification command, and produce a
+redacted `CodexMaintenanceReceipt` for maintainer review. An explicitly supplied Codex JSONL trace
+is optional enrichment, not a prerequisite for the core verdict.
 
 This is an independent community project. It is not an OpenAI product, does not claim OpenAI
 endorsement, and does not replace human review.
@@ -28,13 +28,17 @@ The Codex receipt can additionally record:
 - the SHA-256 of an explicitly supplied JSONL trace, without copying the raw trace;
 - bounded projections of known command, file-change, tool, and message events;
 - baseline and independently executed verification evidence;
+- a stable multi-run baseline group and machine-comparable argv, cwd, repository, non-empty remote,
+  HEAD, timeout, termination, runtime, and tool identities;
+- verification-to-baseline report SHA-256 binding and structured additional check reports with
+  `passed`, `failed`, or `inconclusive` status;
 - repository-scoped AGENTS provenance and adjacent Git snapshots taken during receipt construction;
 - evidence-backed claims and a conservative verdict;
 - warnings, redactions, unknown event types, and parse errors.
 
-A receipt does not prove causality. A `verified` result requires a reproduced baseline, the same
-argv, a completed non-timeout verification with exit code zero, and no receipt condition that makes
-the result inconclusive. A final assistant message is narrative, not independent verification.
+A receipt does not prove causality. A `verified` result requires at least two completed non-zero,
+non-timeout baseline runs, matching machine identities, and a completed verification with exit code
+zero. A final assistant message is narrative, not independent verification.
 
 ## Install the CLI
 
@@ -97,6 +101,36 @@ New-Item -ItemType File -Path $Marker -Force | Out-Null
 `collect` classifies a completed non-zero command as `reproduced`. `verify` requires the baseline
 argv to match the verification argv; a different command is inconclusive.
 
+## Single-conversation Phase 2 flow
+
+The Skill's main workflow uses the current Codex and the GitHub connector for intake, then passes a
+bounded local `issue.md` and a canonical JSON argv file to the CLI. It collects two baselines and
+creates the final receipt without requiring a trace:
+
+```powershell
+$Cli = (Resolve-Path '.\.venv\Scripts\issue-proof.exe').Path
+$Argv = '.\.issue-proof\command-argv.json'
+
+& $Cli collect --issue-file '.\issue.md' --command-argv $Argv `
+    --repo-root '.' --identity-mode github --output '.\.issue-proof\baseline-1'
+& $Cli collect --issue-file '.\issue.md' --command-argv $Argv `
+    --repo-root '.' --identity-mode github --output '.\.issue-proof\baseline-2'
+
+# The current Codex performs the authorized edit and tests here.
+& $Cli verify --baseline '.\.issue-proof\baseline-1\report.json' `
+    --command-argv $Argv --repo-root '.' --identity-mode github --output '.\.issue-proof\verification'
+& $Cli receipt `
+    --baseline '.\.issue-proof\baseline-1\report.json' `
+    --baseline '.\.issue-proof\baseline-2\report.json' `
+    --verification '.\.issue-proof\verification\report.json' `
+    --repo-root '.' --identity-mode github --issue-file '.\issue.md' --output '.\.issue-proof\receipt'
+```
+
+The receipt is machine-authoritative JSON. Missing trace is recorded as `trace_status: absent` with
+a warning while a sufficiently supported core verdict remains usable. `--trace` may be added only
+when the user explicitly supplies a JSONL file; invalid or truncated trace data changes trace
+status and trace-specific claims, not an independently verified core verdict.
+
 ## Use an explicit Codex trace
 
 Trace ingestion and trace-only receipt generation are offline: they do not call an OpenAI API,
@@ -140,7 +174,8 @@ records of a real Codex task.
 ## Network, command, and write boundaries
 
 - Local Issue parsing and trace parsing do not make network requests.
-- Generic `collect --issue-url` invokes the user's authenticated `gh issue view` command.
+- Generic `collect --issue-url` invokes the user's authenticated `gh issue view` command; the Skill
+  main workflow uses the current Codex GitHub connector and `--issue-file` instead.
 - IssueProof never posts comments, labels or closes Issues, creates pull requests, pushes, publishes,
   or changes Codex sandbox and approval settings.
 - IssueProof's own generated files stay under the selected output directory. An explicitly
@@ -163,7 +198,8 @@ commands.
   stops at the first parse error.
 - Unknown event types are counted and reduced to bounded metadata. They are not positive evidence;
   inspect them before relying on a receipt.
-- Parse errors and event-limit truncation make a receipt inconclusive.
+- Parse errors and event-limit truncation make trace-specific evidence unavailable; they do not by
+  themselves downgrade a core baseline/verification verdict.
 - Command output and receipt/trace projections of arguments, paths, URLs, messages, and optional
   AGENTS content are sanitized and bounded before persistence. Generic collection sanitizes the
   supplied Issue snapshot but can retain its full text; review the selected file and output size.
@@ -175,15 +211,15 @@ See [`docs/security-model.md`](docs/security-model.md) and [`SECURITY.md`](SECUR
 
 ## Schemas and validation
 
-`issue-proof validate` validates the generic `report.json` contract, whose schema version remains
-`1.0.0`. The repository and source distribution also contain Draft 2020-12 JSON Schemas for the
-generic report and standalone receipt:
+`issue-proof validate` auto-detects and validates either a generic `report.json` contract (schema
+`1.0.0`) or a standalone receipt (schema `2.0.0`). The repository and source distribution contain
+Draft 2020-12 JSON Schemas for both artifacts:
 
 - [`schemas/issue-proof.schema.json`](schemas/issue-proof.schema.json)
 - [`schemas/codex-maintenance-receipt.schema.json`](schemas/codex-maintenance-receipt.schema.json)
 
-The CLI has no standalone receipt-validation subcommand. Receipt generation performs its internal
-validation; consumers that need Draft 2020-12 validation use the repository schema separately.
+Receipt generation performs internal validation; consumers that need Draft 2020-12 validation use
+the repository schema separately.
 
 ## Exit codes
 

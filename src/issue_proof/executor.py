@@ -20,6 +20,7 @@ class ExecutionLimits:
     timeout_seconds: float = 120.0
     max_output_bytes: int = 256_000
     max_files: int = 16
+    termination_policy: str = "windows-taskkill-tree-v1"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,9 @@ class ExecutionResult:
     timed_out: bool
     stdout: StreamResult
     stderr: StreamResult
+    timeout_seconds: float = 120.0
+    termination_policy: str = "windows-taskkill-tree-v1"
+    capture_limits: dict[str, int] | None = None
 
 
 def _has_unquoted_shell_operator(command: str) -> str | None:
@@ -273,4 +277,10 @@ def execute_argv(
         timed_out=timed_out,
         stdout=_stream_result(stdout_holder),
         stderr=_stream_result(stderr_holder),
+        timeout_seconds=selected.timeout_seconds,
+        termination_policy=selected.termination_policy,
+        capture_limits={
+            "max_output_bytes": selected.max_output_bytes,
+            "max_files": selected.max_files,
+        },
     )

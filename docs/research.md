@@ -14,21 +14,23 @@ feature promises.
 
 IssueProof separates four kinds of information:
 
-1. a generic baseline report from an explicitly supplied command;
-2. bounded projections from an explicitly supplied Codex JSONL trace;
-3. an independently executed verification command using the baseline argv;
+1. generic baseline reports from an explicitly supplied canonical argv;
+2. an independently executed verification command using the same argv and machine identity;
+3. optional bounded projections from an explicitly supplied Codex JSONL trace;
 4. claims that cite stable receipt evidence IDs.
 
 A single failing baseline is an observation, not proof that a bug is deterministic. An assistant
-message is narrative, not verification. A fix conclusion requires matching argv and a completed,
-non-timeout zero exit from independent verification.
+message is narrative, not verification. A fix conclusion requires a stable two-run baseline group,
+matching argv/cwd/repository/remote/HEAD/timeout/termination/runtime/tool identities, and a
+completed non-timeout zero exit from independent verification.
 
 ## Codex adapter boundary
 
 The adapter accepts a JSONL stream with documented outer event-family names and locally tested item
 projections. Nested payloads are version-sensitive, so the adapter is labeled
 `experimental-compatible`. Unknown event types are counted and excluded from positive evidence.
-Parse errors and event-limit truncation make the receipt inconclusive.
+Parse errors and event-limit truncation make trace-specific evidence unavailable; they do not by
+themselves make a separately supported core receipt inconclusive.
 
 The adapter reads only the explicit trace path. It does not start Codex, call an OpenAI API, scan
 Codex home/history/configuration, or import hidden reasoning. Raw JSONL is represented by a digest
@@ -68,7 +70,7 @@ or plugin.
 
 ## Schema boundary
 
-Generic reports retain schema version `1.0.0`. Standalone receipts use their own versioned contract.
-The CLI `validate` command validates generic reports; receipt generation performs its internal
-validation, and the repository supplies a Draft 2020-12 standalone receipt schema for external
-consumers.
+Generic reports retain schema version `1.0.0`. Standalone receipts use versioned contract `2.0.0`.
+The CLI `validate` command auto-detects generic reports and standalone receipts. Receipt generation
+performs internal validation, and the repository supplies a Draft 2020-12 standalone receipt schema
+for external consumers.

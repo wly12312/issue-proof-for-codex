@@ -29,7 +29,15 @@ def test_schema_file_is_versioned_and_has_required_sections() -> None:
         ).read_text()
     )
     assert receipt_schema["properties"]["receipt_type"]["const"] == "CodexMaintenanceReceipt"
-    assert receipt_schema["properties"]["receipt_schema_version"]["const"] == "1.0.0"
+    assert receipt_schema["properties"]["receipt_schema_version"]["const"] == "2.0.0"
+    assert set(receipt_schema["required"]) >= {
+        "baseline_group",
+        "checks",
+        "report_hashes",
+        "receipt_mode",
+        "trace_status",
+    }
+    assert "identity" in receipt_schema["properties"]["repository"]["required"]
 
 
 def test_schema_validator_rejects_bad_hash_and_outcome() -> None:

@@ -38,19 +38,46 @@ Push-Location $Fixture
 try {
     & $Cli collect `
         --issue-file '.\issue.md' `
-        --command 'python src/bug_fixture.py' `
-        --output '.\baseline' `
-        --repo-root '.'
+        --command-argv '.\baseline-command.json' `
+        --output '.\baseline-1' `
+        --repo-root '.' `
+        --identity-mode github
+
+    & $Cli collect `
+        --issue-file '.\issue.md' `
+        --command-argv '.\baseline-command.json' `
+        --output '.\baseline-2' `
+        --repo-root '.' `
+        --identity-mode github
 
     New-Item -ItemType File -Path '.\fixed.marker' -Force | Out-Null
 
-    & $Cli codex verify `
-        --baseline '.\baseline\report.json' `
-        --trace $Trace `
+    & $Cli verify `
+        --baseline '.\baseline-1\report.json' `
         --command-argv '.\verify-command.json' `
         --output '.\verified' `
         --repo-root '.' `
-        --claims $Claims
+        --identity-mode github
+    & $Cli receipt `
+        --baseline '.\baseline-1\report.json' `
+        --baseline '.\baseline-2\report.json' `
+        --verification '.\verified\report.json' `
+        --issue-file '.\issue.md' `
+        --repo-root '.' `
+        --identity-mode github `
+        --output '.\receipt'
+
+    # Optional trace enrichment; it does not replace the core reports above.
+    & $Cli receipt `
+        --baseline '.\baseline-1\report.json' `
+        --baseline '.\baseline-2\report.json' `
+        --verification '.\verified\report.json' `
+        --issue-file '.\issue.md' `
+        --repo-root '.' `
+        --identity-mode github `
+        --trace $Trace `
+        --claims $Claims `
+        --output '.\receipt-with-trace'
 }
 finally {
     Pop-Location
@@ -58,8 +85,9 @@ finally {
 ```
 
 The baseline command exits non-zero until `fixed.marker` exists. The generated
-`verify-command.json` contains the same argv, so `codex verify` executes an independent matching
-command and writes `verified\receipt.json` plus `verified\receipt.md`.
+`verify-command.json` contains the same argv, so `verify` executes an independent matching command.
+The top-level `receipt` command combines both baseline reports and the verification report; the
+first receipt is valid without a trace, while the second demonstrates optional trace enrichment.
 
 Inspect the actual generated fields instead of comparing timestamps, IDs, or hashes with a copied
 sample:
@@ -68,14 +96,19 @@ sample:
 $Receipt = Get-Content `
     -Raw `
     -Encoding utf8 `
-    -LiteralPath '.\.issue-proof\codex-fixture\verified\receipt.json' |
+    -LiteralPath '.\.issue-proof\codex-fixture\receipt\receipt.json' |
     ConvertFrom-Json
 
 $Receipt.verdict
 $Receipt.baseline.outcome
 $Receipt.verification.outcome
+$Receipt.verification.baseline_report_sha256
+$Receipt.checks | Select-Object id, outcome, status
 $Receipt.claims | Select-Object id, type, status, evidence_ids
 ```
+
+For compatibility testing only, the older `codex verify` command still accepts one baseline and an
+explicit trace. It is not the Skill's main workflow.
 
 To inspect trace parsing alone without executing verification:
 

@@ -8,13 +8,16 @@
 
 ## Current implemented scope
 
-- Local Markdown Issue input and authenticated GitHub Issue reads through explicit `gh issue view`.
+- Local Markdown Issue input and authenticated GitHub Issue reads through the active integration;
+  the Skill main flow hands the CLI a bounded `issue.md`.
 - Explicit argv execution with Windows process-tree timeout handling, bounded sanitized output,
   runtime/Git facts, stable hashes, generic JSON reports, and Markdown rendering.
-- Baseline reproduction and conservative same-argv verification.
+- Canonical argv baseline reproduction, stable two-run baseline groups, and conservative
+  same-identity verification.
 - Explicit Codex JSONL ingestion with line, text, and event limits.
-- Versioned, redacted `CodexMaintenanceReceipt` objects with Git and AGENTS provenance, evidence
-  claims, warnings, and deterministic Markdown.
+- Versioned, redacted `CodexMaintenanceReceipt` objects with optional trace enrichment, Git and
+  AGENTS provenance, baseline/report hashes, structured checks, evidence claims, warnings, and
+  deterministic Markdown.
 - A Python CLI, self-contained Agent Skill directory, skills-only plugin manifest, synthetic offline
   fixtures, Draft 2020-12 schemas, and Windows CI.
 

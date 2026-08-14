@@ -13,6 +13,12 @@ from typing import Any
 
 from .errors import DependencyError, OutputPathError
 from .executor import ExecutionLimits, execute_argv, parse_command
+from .identity import (
+    argv_identity,
+    cwd_identity,
+    repository_identity,
+    timeout_policy_identity,
+)
 from .models import (
     ExecutionInfo,
     IssueInfo,
@@ -138,6 +144,7 @@ def inspect_repository(repo_root: Path) -> tuple[RepositoryInfo, list[str]]:
             head_sha=None,
             branch=None,
             dirty=None,
+            identity=repository_identity(root),
         ), warnings
     actual_root = Path(git_root).resolve()
     _, head, head_err = _git_command(["rev-parse", "HEAD"], actual_root)
@@ -161,8 +168,37 @@ def inspect_repository(repo_root: Path) -> tuple[RepositoryInfo, list[str]]:
             head_sha=head,
             branch=branch or "(detached)",
             dirty=dirty,
+            identity=repository_identity(actual_root, remote or None),
         ),
         warnings,
+    )
+
+
+def apply_identity_mode(
+    repository: RepositoryInfo,
+    warnings: list[str],
+    identity_mode: str,
+) -> None:
+    """Record the workflow identity policy and enforce GitHub-grade prerequisites."""
+
+    if identity_mode not in {"github", "local"}:
+        raise ValueError("identity_mode must be github or local")
+    repository.identity_mode = identity_mode
+    missing: list[str] = []
+    if not repository.remote_url:
+        missing.append("remote URL")
+    if not repository.head_sha:
+        missing.append("HEAD SHA")
+    if not missing:
+        return
+    if identity_mode == "github":
+        raise DependencyError(
+            "GitHub identity mode requires a non-empty remote URL and HEAD SHA; "
+            f"missing {', '.join(missing)}"
+        )
+    warnings.append(
+        "local identity mode selected; missing "
+        f"{', '.join(missing)} forces any receipt to downgrade to inconclusive"
     )
 
 
@@ -226,6 +262,16 @@ def _execution_info(result) -> ExecutionInfo:
             "truncated": result.stderr.truncated,
             "redacted": result.stderr.redacted,
         },
+        timeout_seconds=getattr(result, "timeout_seconds", None),
+        termination_policy=getattr(result, "termination_policy", None),
+        capture_limits=getattr(result, "capture_limits", None),
+        argv_identity=argv_identity(result.argv),
+        cwd_identity=cwd_identity(result.cwd),
+        timeout_policy_identity=timeout_policy_identity(
+            getattr(result, "timeout_seconds", None),
+            getattr(result, "termination_policy", None),
+            getattr(result, "capture_limits", None),
+        ),
     )
 
 
@@ -309,30 +355,41 @@ def collect_evidence(
     issue_snapshot: str,
     repo_root: Path,
     command: str | None,
+    command_argv: list[str] | None = None,
     output_dir: Path,
     limits: ExecutionLimits | None = None,
     created_at: str | None = None,
+    identity_mode: str = "local",
 ) -> tuple[Report, Path, Path]:
     selected_limits = limits or ExecutionLimits()
     repository, warnings = inspect_repository(repo_root)
+    apply_identity_mode(repository, warnings, identity_mode)
     runtime = detect_runtime()
     execution = empty_execution()
     security_events: list[str] = []
     notes = [
-        "Issue text was treated as untrusted data; only --command is executable.",
-        "The baseline is a single observation, not a sandbox or a causal proof.",
+        (
+            "Issue text was treated as untrusted data; only an explicit command or "
+            "--command-argv is executable."
+        ),
+        (
+            "This baseline is one observation; a stable baseline group requires at least two "
+            "matching runs."
+        ),
         f"MVP artifact capture is limited to {selected_limits.max_files} files; "
         "repository files are not scanned.",
     ]
-    if command is not None:
-        argv = parse_command(command)
+    if command is not None and command_argv is not None:
+        raise ValueError("command and command_argv are mutually exclusive")
+    if command is not None or command_argv is not None:
+        argv = command_argv if command_argv is not None else parse_command(command or "")
         result = execute_argv(argv, cwd=repo_root.resolve(), limits=selected_limits)
         execution = _execution_info(result)
         execution_warnings, execution_security = _warnings_for_execution(execution)
         warnings.extend(execution_warnings)
         security_events.extend(execution_security)
     else:
-        warnings.append("No --command was supplied; static evidence was collected only")
+        warnings.append("No command was supplied; static evidence was collected only")
     reproduction = _reproduction(execution)
     report = new_report(
         issue=issue,
@@ -361,8 +418,10 @@ def collect_from_issue_file(
     issue_file: Path,
     repo_root: Path,
     command: str | None,
+    command_argv: list[str] | None = None,
     output_dir: Path,
     limits: ExecutionLimits | None = None,
+    identity_mode: str = "local",
 ) -> tuple[Report, Path, Path]:
     if not issue_file.exists() or not issue_file.is_file():
         raise DependencyError(f"issue file does not exist or is not a file: {issue_file}")
@@ -379,8 +438,10 @@ def collect_from_issue_file(
         issue_snapshot=snapshot,
         repo_root=repo_root,
         command=command,
+        command_argv=command_argv,
         output_dir=output_dir,
         limits=limits,
+        identity_mode=identity_mode,
     )
     if had_replacement:
         report.warnings.append(

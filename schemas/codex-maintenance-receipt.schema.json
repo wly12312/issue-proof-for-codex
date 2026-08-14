@@ -23,15 +23,21 @@
     "warnings",
     "redactions",
     "unknown_events",
-    "parse_errors"
+    "parse_errors",
+    "receipt_mode",
+    "trace_status",
+    "identity_mode",
+    "baseline_group",
+    "checks",
+    "report_hashes"
   ],
   "properties": {
-    "receipt_schema_version": {"const": "1.0.0"},
+    "receipt_schema_version": {"const": "2.0.0"},
     "receipt_type": {"const": "CodexMaintenanceReceipt"},
     "tool_version": {"type": "string", "minLength": 1},
     "generated_at": {"type": "string", "format": "date-time"},
     "codex": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "required": ["cli_version", "app_version", "task_id", "session_id", "source_trace_sha256", "adapter", "raw_trace_persisted", "messages_included"],
       "properties": {
@@ -48,13 +54,14 @@
     "repository": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["root", "remote_url", "head_sha", "branch", "dirty", "worktree_path", "common_git_dir_sha256", "start", "end", "changed_files"],
+      "required": ["root", "remote_url", "head_sha", "branch", "dirty", "identity", "worktree_path", "common_git_dir_sha256", "start", "end", "changed_files"],
       "properties": {
         "root": {"type": "string"},
         "remote_url": {"type": ["string", "null"]},
         "head_sha": {"type": ["string", "null"]},
         "branch": {"type": ["string", "null"]},
         "dirty": {"type": ["boolean", "null"]},
+        "identity": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "worktree_path": {"type": "string"},
         "common_git_dir_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "start": {
@@ -99,15 +106,47 @@
     "issue": {"type": "object", "additionalProperties": true},
     "baseline": {"type": ["object", "null"]},
     "commands": {"type": "array", "items": {"type": "object"}},
-    "verification": {"type": "object", "additionalProperties": true},
+    "verification": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "same_argv": {"type": ["boolean", "null"]},
+        "same_cwd": {"type": ["boolean", "null"]},
+        "same_repository": {"type": ["boolean", "null"]},
+        "same_remote": {"type": ["boolean", "null"]},
+        "same_head": {"type": ["boolean", "null"]},
+        "same_timeout": {"type": ["boolean", "null"]},
+        "same_termination_policy": {"type": ["boolean", "null"]},
+        "same_timeout_policy": {"type": ["boolean", "null"]},
+        "same_runtime": {"type": ["boolean", "null"]},
+        "same_tool": {"type": ["boolean", "null"]},
+        "baseline_report_hashes": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "verification_report_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "baseline_report_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "baseline_report_hash_match": {"type": ["boolean", "null"]},
+        "identity_complete": {"type": ["boolean", "null"]},
+        "identity_mode": {"enum": ["github", "local"]},
+        "identity_mode_match": {"type": ["boolean", "null"]}
+      }
+    },
     "agents": {"type": "object", "additionalProperties": true},
     "trace": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["name", "sha256", "lines_seen", "valid_events", "unknown_event_count", "include_messages"],
+      "required": ["status", "name", "sha256", "lines_seen", "valid_events", "unknown_event_count", "include_messages"],
       "properties": {
-        "name": {"type": "string"},
-        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "status": {"enum": ["absent", "present", "invalid", "truncated"]},
+        "name": {"type": ["string", "null"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "lines_seen": {"type": "integer", "minimum": 0},
         "valid_events": {"type": "integer", "minimum": 0},
         "unknown_event_count": {"type": "integer", "minimum": 0},
@@ -122,5 +161,69 @@
     "redactions": {"type": "array", "items": {"type": "string"}},
     "unknown_events": {"type": "array", "items": {"type": "string"}},
     "parse_errors": {"type": "array", "items": {"type": "object"}}
-  }
+    ,
+    "receipt_mode": {"enum": ["trace-oriented", "core-verification", "core-and-trace"]},
+    "trace_status": {"enum": ["absent", "present", "invalid", "truncated"]},
+    "identity_mode": {"enum": ["github", "local"]},
+    "baseline_group": {"type": ["object", "null"]},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "outcome": {"enum": ["passed", "failed", "inconclusive"]},
+          "status": {"enum": ["passed", "failed", "inconclusive"]}
+        }
+      }
+    },
+    "report_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baselines": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "verification": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "checks": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "trace": {"properties": {"status": {"const": "absent"}}}
+        }
+      },
+      "then": {
+        "properties": {
+          "trace": {"properties": {"sha256": {"type": "null"}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "trace": {
+            "properties": {
+              "status": {"enum": ["present", "invalid", "truncated"]}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "trace": {
+            "properties": {
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    }
+  ]
 }

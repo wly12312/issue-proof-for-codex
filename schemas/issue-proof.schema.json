@@ -41,13 +41,15 @@
     "repository": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["root", "remote_url", "head_sha", "branch", "dirty"],
+      "required": ["root", "remote_url", "head_sha", "branch", "dirty", "identity"],
       "properties": {
         "root": {"type": "string", "minLength": 1},
         "remote_url": {"type": ["string", "null"]},
         "head_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40,64}$"},
         "branch": {"type": ["string", "null"]},
-        "dirty": {"type": ["boolean", "null"]}
+        "dirty": {"type": ["boolean", "null"]},
+        "identity": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "identity_mode": {"enum": ["github", "local"]}
       }
     },
     "runtime": {
@@ -63,7 +65,7 @@
     "execution": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["argv", "display_command", "cwd", "started_at", "finished_at", "duration_seconds", "exit_code", "timed_out", "stdout", "stderr"],
+      "required": ["argv", "display_command", "cwd", "started_at", "finished_at", "duration_seconds", "exit_code", "timed_out", "stdout", "stderr", "timeout_seconds", "termination_policy", "capture_limits", "argv_identity", "cwd_identity", "timeout_policy_identity"],
       "properties": {
         "argv": {"type": "array", "items": {"type": "string"}},
         "display_command": {"type": ["string", "null"]},
@@ -74,7 +76,13 @@
         "exit_code": {"type": ["integer", "null"]},
         "timed_out": {"type": "boolean"},
         "stdout": {"$ref": "#/$defs/stream"},
-        "stderr": {"$ref": "#/$defs/stream"}
+        "stderr": {"$ref": "#/$defs/stream"},
+        "timeout_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "termination_policy": {"type": ["string", "null"]},
+        "capture_limits": {"type": ["object", "null"]},
+        "argv_identity": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "cwd_identity": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "timeout_policy_identity": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "artifacts": {
@@ -108,7 +116,8 @@
         "baseline_run_id": {"type": "string"},
         "baseline_exit_code": {"type": ["integer", "null"]},
         "verification_exit_code": {"type": ["integer", "null"]},
-        "baseline_stability": {"type": "string"}
+        "baseline_stability": {"type": "string"},
+        "baseline_report_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "warnings": {"type": "array", "items": {"type": "string"}},

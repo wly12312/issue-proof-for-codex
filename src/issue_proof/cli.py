@@ -44,10 +44,24 @@ def _parser() -> argparse.ArgumentParser:
     source = collect.add_mutually_exclusive_group(required=True)
     source.add_argument("--issue-file", type=Path, help="local Markdown Issue file")
     source.add_argument("--issue-url", help="GitHub Issue URL fetched through authenticated gh")
-    collect.add_argument("--command", help="explicit argv-style command; shell syntax is rejected")
+    collect_command = collect.add_mutually_exclusive_group()
+    collect_command.add_argument(
+        "--command", help="legacy explicit argv-style command; shell syntax is rejected"
+    )
+    collect_command.add_argument(
+        "--command-argv",
+        type=Path,
+        help="canonical JSON argv file used by the Skill main workflow",
+    )
     collect.add_argument("--output", type=Path, required=True, help="evidence output directory")
     collect.add_argument(
         "--repo-root", type=Path, default=Path.cwd(), help="repository command cwd"
+    )
+    collect.add_argument(
+        "--identity-mode",
+        choices=("github", "local"),
+        default="local",
+        help="github requires a non-empty remote and HEAD; local records an explicit downgrade",
     )
     _add_limits(collect)
     collect.set_defaults(handler=_collect)
@@ -56,11 +70,54 @@ def _parser() -> argparse.ArgumentParser:
         "verify", help="run the same explicit command against a baseline report"
     )
     verify.add_argument("--baseline", type=Path, required=True, help="baseline report.json")
-    verify.add_argument("--command", required=True, help="explicit argv-style verification command")
+    verify_command = verify.add_mutually_exclusive_group(required=True)
+    verify_command.add_argument("--command", help="legacy explicit argv-style verification command")
+    verify_command.add_argument(
+        "--command-argv",
+        type=Path,
+        help="canonical JSON argv file used by the Skill main workflow",
+    )
     verify.add_argument("--output", type=Path, required=True, help="verification output directory")
     verify.add_argument("--repo-root", type=Path, default=Path.cwd(), help="repository command cwd")
+    verify.add_argument(
+        "--identity-mode",
+        choices=("github", "local"),
+        default=None,
+        help="identity policy; defaults to the baseline report policy",
+    )
     _add_limits(verify)
     verify.set_defaults(handler=_verify)
+
+    receipt = subparsers.add_parser(
+        "receipt", help="create a receipt from baseline and verification reports"
+    )
+    receipt.add_argument(
+        "--baseline",
+        type=Path,
+        action="append",
+        required=True,
+        help="baseline report.json; repeat for a baseline group",
+    )
+    receipt.add_argument("--verification", type=Path, required=True)
+    receipt.add_argument("--repo-root", type=Path, default=Path.cwd())
+    receipt.add_argument("--output", type=Path, required=True)
+    receipt.add_argument(
+        "--identity-mode",
+        choices=("github", "local"),
+        default="github",
+        help="github is strict; local explicitly records a possible identity downgrade",
+    )
+    receipt.add_argument("--issue-file", type=Path)
+    receipt.add_argument("--trace", type=Path, help="optional Codex JSONL enrichment")
+    receipt.add_argument("--claims", type=Path)
+    receipt.add_argument("--check-report", type=Path, action="append")
+    receipt.add_argument("--agents-target", default=".")
+    receipt.add_argument("--include-agents-content", action="store_true")
+    receipt.add_argument("--include-messages", action="store_true")
+    receipt.add_argument("--heuristic-claims", action="store_true")
+    _add_limits(receipt)
+    _add_trace_limits(receipt)
+    receipt.set_defaults(handler=_receipt)
 
     validate = subparsers.add_parser(
         "validate", help="validate report.json against the bundled contract"
@@ -354,6 +411,58 @@ def _codex_receipt(args: argparse.Namespace) -> int:
     return 0
 
 
+def _receipt(args: argparse.Namespace) -> int:
+    from .codex.agents import collect_agents
+    from .codex.parser import parse_trace
+    from .codex.receipt import build_report_receipt, write_receipt_files
+    from .identity import file_sha256
+
+    baseline_paths = list(args.baseline)
+    baseline_reports = [load_report(path) for path in baseline_paths]
+    verification_path = args.verification
+    verification_report = load_report(verification_path)
+    trace = (
+        parse_trace(
+            args.trace,
+            strict=args.strict,
+            include_messages=args.include_messages,
+            limits=_trace_limits(args),
+        )
+        if args.trace
+        else None
+    )
+    agents = collect_agents(
+        args.repo_root.resolve(),
+        args.agents_target,
+        include_content=args.include_agents_content,
+    )
+    check_reports = [load_report(path) for path in (args.check_report or [])]
+    report_hashes = {
+        "baselines": [file_sha256(path) for path in baseline_paths],
+        "verification": file_sha256(verification_path),
+        "checks": [file_sha256(path) for path in (args.check_report or [])],
+    }
+    receipt = build_report_receipt(
+        baseline_reports,
+        verification_report,
+        repo_root=args.repo_root.resolve(),
+        issue=_receipt_issue(args),
+        trace=trace,
+        agents=agents,
+        claim_inputs=_load_claims(args.claims),
+        check_reports=check_reports,
+        report_hashes=report_hashes,
+        identity_mode=args.identity_mode,
+        include_heuristics=args.heuristic_claims,
+    )
+    json_path, markdown_path = write_receipt_files(receipt, args.output)
+    print(f"receipt: {json_path}")
+    print(f"markdown: {markdown_path}")
+    print(f"verification: {receipt.verification['outcome']}")
+    print(f"verdict: {receipt.verdict}")
+    return 0
+
+
 def _load_command_argv(path: Path) -> list[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -383,20 +492,22 @@ def _codex_verify(args: argparse.Namespace) -> int:
     from .codex.receipt import build_receipt, write_receipt_files
     from .collector import _execution_info
     from .executor import execute_argv
+    from .identity import file_sha256
 
     baseline = load_report(args.baseline)
     repo_root = args.repo_root.resolve()
     argv = _load_command_argv(args.command_argv)
     limits = _limits(args)
+    baseline_report_sha256 = file_sha256(args.baseline)
     result = execute_argv(argv, cwd=repo_root, limits=limits)
     execution = _execution_info(result).as_dict()
     execution["id"] = "verification-command"
-    execution["cwd"] = "."
     verification_report = verify_argv_against_baseline(
         baseline,
         argv=argv,
         execution=execution,
         repo_root=repo_root,
+        baseline_report_sha256=baseline_report_sha256,
     )
     summary = parse_trace(
         args.trace,
@@ -444,13 +555,16 @@ def _codex_agents(args: argparse.Namespace) -> int:
 def _collect(args: argparse.Namespace) -> int:
     limits = _limits(args)
     repo_root = args.repo_root.resolve()
+    command_argv = _load_command_argv(args.command_argv) if args.command_argv else None
     if args.issue_file:
         report, json_path, markdown_path = collect_from_issue_file(
             issue_file=args.issue_file,
             repo_root=repo_root,
             command=args.command,
+            command_argv=command_argv,
             output_dir=args.output,
             limits=limits,
+            identity_mode=args.identity_mode,
         )
     else:
         try:
@@ -472,8 +586,10 @@ def _collect(args: argparse.Namespace) -> int:
             issue_snapshot=snapshot,
             repo_root=repo_root,
             command=args.command,
+            command_argv=command_argv,
             output_dir=args.output,
             limits=limits,
+            identity_mode=args.identity_mode,
         )
     print(f"report: {json_path}")
     print(f"markdown: {markdown_path}")
@@ -482,12 +598,18 @@ def _collect(args: argparse.Namespace) -> int:
 
 
 def _verify(args: argparse.Namespace) -> int:
+    from .identity import file_sha256
+
     baseline = load_report(args.baseline)
+    command_argv = _load_command_argv(args.command_argv) if args.command_argv else None
     report = verify_against_baseline(
         baseline,
         command=args.command,
+        argv=command_argv,
         repo_root=args.repo_root.resolve(),
         limits=_limits(args),
+        baseline_report_sha256=file_sha256(args.baseline),
+        identity_mode=args.identity_mode,
     )
     json_path, markdown_path = write_report_files(report, args.output)
     print(f"report: {json_path}")
@@ -497,8 +619,25 @@ def _verify(args: argparse.Namespace) -> int:
 
 
 def _validate(args: argparse.Namespace) -> int:
+    from .codex.receipt import RECEIPT_TYPE, load_receipt
+
+    try:
+        data = json.loads(args.report.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise IssueProofError(
+            f"could not read validation input {args.report}: {exc}", exit_code=3
+        ) from exc
+    if isinstance(data, dict) and (
+        data.get("receipt_type") == RECEIPT_TYPE or "receipt_schema_version" in data
+    ):
+        receipt = load_receipt(args.report)
+        print(
+            f"valid receipt: {args.report} "
+            f"(schema {receipt.receipt_schema_version}, verdict {receipt.verdict})"
+        )
+        return 0
     report = load_report(args.report)
-    print(f"valid: {args.report} (schema {report.schema_version})")
+    print(f"valid report: {args.report} (schema {report.schema_version})")
     return 0
 
 

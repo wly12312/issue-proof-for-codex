@@ -85,7 +85,8 @@ size, retained text, and event count.
 - Strict mode stops at the first parse error; lenient mode continues where possible.
 - Unknown event types are counted and reduced to bounded type/key metadata. They are not used as
   positive evidence and require maintainer review.
-- Parse errors or event-limit truncation make the final receipt inconclusive.
+- When a core baseline/verification receipt is being built, parse errors or event-limit truncation
+  make only trace-specific evidence unavailable. A supplied trace cannot replace core evidence.
 - Message text is omitted unless `--include-messages` is explicitly selected. Opted-in messages are
   still redacted and bounded, and the receipt records a privacy warning.
 - The raw trace is not copied into the output; its SHA-256 and summary counts are recorded.

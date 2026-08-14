@@ -1,3 +1,4 @@
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,6 +12,39 @@ def python_command(code: str) -> str:
 
 
 def baseline(tmp_path: Path):
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "issue-proof@example.invalid"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "IssueProof Test"],
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "README.md").write_text("fixture\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "README.md"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "fixture"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/example/verify-fixture.git",
+        ],
+        check=True,
+        capture_output=True,
+    )
     issue = tmp_path / "issue.md"
     issue.write_text("# Verify bug\n", encoding="utf-8")
     command = python_command(
@@ -22,6 +56,7 @@ def baseline(tmp_path: Path):
         command=command,
         output_dir=tmp_path / "baseline",
         limits=ExecutionLimits(timeout_seconds=5),
+        identity_mode="github",
     )
     return report, command
 
@@ -34,6 +69,7 @@ def test_verify_classifies_fix_conservatively(tmp_path) -> None:
         command=command,
         repo_root=tmp_path,
         limits=ExecutionLimits(timeout_seconds=5),
+        identity_mode="github",
     )
     assert fixed.verification["outcome"] == "verified"
     assert fixed.verification["baseline_run_id"] == report.run_id
@@ -42,24 +78,25 @@ def test_verify_classifies_fix_conservatively(tmp_path) -> None:
 def test_verify_marks_still_failing_as_not_fixed(tmp_path) -> None:
     report, command = baseline(tmp_path)
     current = verify_against_baseline(
-        report, command=command, repo_root=tmp_path, limits=ExecutionLimits(timeout_seconds=5)
+        report,
+        command=command,
+        repo_root=tmp_path,
+        limits=ExecutionLimits(timeout_seconds=5),
+        identity_mode="github",
     )
     assert current.verification["outcome"] == "not-fixed"
 
 
 def test_verify_marks_non_reproduced_baseline_inconclusive(tmp_path) -> None:
-    issue = tmp_path / "issue.md"
-    issue.write_text("# No repro\n", encoding="utf-8")
-    baseline_report, _, _ = collect_from_issue_file(
-        issue_file=issue,
-        repo_root=tmp_path,
-        command=python_command("import sys; sys.exit(0)"),
-        output_dir=tmp_path / "baseline",
-    )
+    baseline_report, command = baseline(tmp_path)
+    (tmp_path / "fixed.marker").write_text("fixed", encoding="utf-8")
+    baseline_report.reproduction["outcome"] = "not-reproduced"
+    baseline_report.execution.exit_code = 0
     current = verify_against_baseline(
         baseline_report,
-        command=python_command("import sys; sys.exit(0)"),
+        command=command,
         repo_root=tmp_path,
+        identity_mode="github",
     )
     assert current.verification["outcome"] == "inconclusive"
 
@@ -99,6 +136,7 @@ def test_direct_verification_rejects_a_different_repository(tmp_path) -> None:
         argv=list(baseline_report.execution.argv),
         execution={"exit_code": 0, "timed_out": False},
         repo_root=verification_root,
+        identity_mode="local",
     )
 
     assert result["verification"]["outcome"] == "inconclusive"

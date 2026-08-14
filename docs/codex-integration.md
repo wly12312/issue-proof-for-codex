@@ -8,7 +8,39 @@
 
 IssueProof is a downstream evidence layer. It does not launch Codex, submit prompts, make an OpenAI
 API request, or inspect Codex private local state. A maintainer explicitly supplies an existing
-JSONL trace.
+JSONL trace when trace enrichment is explicitly requested; the core receipt flow does not require
+one.
+
+## Main same-conversation workflow
+
+The Skill uses the current Codex plus the GitHub connector for repository and Issue intake. It saves
+the bounded connector result as `issue.md`, creates a canonical JSON argv file, and keeps the
+baseline, verification, and receipt steps in the same conversation:
+
+```powershell
+$Cli = (Resolve-Path '.\.venv\Scripts\issue-proof.exe').Path
+$Argv = '.\.issue-proof\command-argv.json'
+
+& $Cli collect --issue-file '.\issue.md' --command-argv $Argv `
+    --repo-root '.' --identity-mode github --output '.\.issue-proof\baseline-1'
+& $Cli collect --issue-file '.\issue.md' --command-argv $Argv `
+    --repo-root '.' --identity-mode github --output '.\.issue-proof\baseline-2'
+
+# The current Codex performs the authorized edit and tests here.
+& $Cli verify --baseline '.\.issue-proof\baseline-1\report.json' `
+    --command-argv $Argv --repo-root '.' --identity-mode github --output '.\.issue-proof\verification'
+& $Cli receipt `
+    --baseline '.\.issue-proof\baseline-1\report.json' `
+    --baseline '.\.issue-proof\baseline-2\report.json' `
+    --verification '.\.issue-proof\verification\report.json' `
+    --repo-root '.' --identity-mode github --issue-file '.\issue.md' --output '.\.issue-proof\receipt'
+```
+
+Two matching completed non-zero baselines are required for a stable core verdict. GitHub identity
+mode requires non-empty remote and HEAD. The receipt recomputes argv, cwd, repository, remote, HEAD,
+timeout, termination, runtime, and tool identity comparisons and binds verification to the actual
+baseline report SHA-256. Trace is optional; without it the receipt records `trace_status: absent` and
+a warning. Local no-remote mode must be explicit and is downgraded to inconclusive.
 
 ## Trace ingestion
 
@@ -24,13 +56,14 @@ $Cli = (Resolve-Path '.\.venv\Scripts\issue-proof.exe').Path
 The parser streams the supplied path once. It hashes the source bytes, bounds line/event/text
 capture, reports corrupt lines, counts unknown event types, and sanitizes projected evidence. It
 does not copy the raw trace. Unknown events are not positive evidence; parse errors and event-limit
-truncation make a receipt inconclusive.
+truncation make trace-specific activity evidence unavailable; they do not by themselves downgrade
+an independently supported core baseline/verification verdict.
 
 Use `--strict` when the import must stop at the first invalid line. When generating a receipt with
 `codex receipt` or `codex verify`, use `--include-messages` only after an explicit privacy decision;
 message content remains bounded and sanitized. `codex ingest` has no message-content option.
 
-## Draft a receipt without executing verification
+## Compatibility: draft a trace-oriented receipt
 
 ```powershell
 $Cli = (Resolve-Path '.\.venv\Scripts\issue-proof.exe').Path
@@ -46,7 +79,7 @@ $Cli = (Resolve-Path '.\.venv\Scripts\issue-proof.exe').Path
 This command imports the trace and existing evidence; it does not run the baseline or an independent
 verification command. A supplied baseline alone cannot support `fix-verified`.
 
-## Run independent verification
+## Compatibility: run trace-oriented independent verification
 
 First create a generic baseline with an explicit failing command. Then store the same argv in JSON:
 

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
 
 
 def main() -> int:
@@ -30,13 +35,29 @@ def main() -> int:
         json.dumps({"argv": ["python", "src/bug_fixture.py"]}, indent=2) + "\n",
         encoding="utf-8",
     )
+    _git(root, "init")
+    _git(root, "config", "user.email", "issue-proof@example.invalid")
+    _git(root, "config", "user.name", "IssueProof Fixture")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "offline fixture")
+    _git(root, "remote", "add", "origin", "https://github.com/example/offline-fixture.git")
     print(f"fixture: {root}")
     print(
-        "baseline: issue-proof collect --issue-file .\\issue.md --command "
-        "'python src/bug_fixture.py' --output .\\baseline --repo-root ."
+        "baseline: issue-proof collect --issue-file .\\issue.md --command-argv "
+        ".\\baseline-command.json --output .\\baseline-1 --repo-root . --identity-mode github"
     )
+    print("repeat the baseline command for .\\baseline-2")
     print("simulated fix: New-Item -ItemType File -Path .\\fixed.marker -Force")
-    print("verification: use issue-proof codex verify with .\\verify-command.json")
+    print(
+        "verification: issue-proof verify --baseline .\\baseline-1\\report.json "
+        "--command-argv .\\verify-command.json --output .\\verified --repo-root . "
+        "--identity-mode github"
+    )
+    print(
+        "receipt: issue-proof receipt --baseline .\\baseline-1\\report.json "
+        "--baseline .\\baseline-2\\report.json --verification .\\verified\\report.json "
+        "--output .\\receipt --repo-root . --identity-mode github"
+    )
     return 0
 
 
