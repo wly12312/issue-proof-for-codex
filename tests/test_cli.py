@@ -72,7 +72,10 @@ def test_cli_collect_validate_render_verify(tmp_path, capsys) -> None:
     baseline = baseline_dir / "report.json"
     assert main(["validate", str(baseline)]) == 0
     assert main(["render", str(baseline)]) == 0
-    (tmp_path / "fixed.marker").write_text("fixed", encoding="utf-8")
+    fixed_marker = tmp_path / "fixed.marker"
+    # Keep the baseline deterministic if a Windows runner reuses a basetemp directory.
+    fixed_marker.unlink(missing_ok=True)
+    fixed_marker.write_text("fixed", encoding="utf-8")
     fixed_dir = tmp_path / "fixed"
     assert (
         main(
@@ -129,3 +132,4 @@ def test_doctor_help_path(capsys) -> None:
     assert "Support: Windows 10/11" in output
     assert "Tested Python: 3.11, 3.12, 3.14" in output
     assert "Linux/macOS: unsupported, untested, and unverified" in output
+
