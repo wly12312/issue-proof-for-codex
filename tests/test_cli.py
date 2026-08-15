@@ -132,4 +132,3 @@ def test_doctor_help_path(capsys) -> None:
     assert "Support: Windows 10/11" in output
     assert "Tested Python: 3.11, 3.12, 3.14" in output
     assert "Linux/macOS: unsupported, untested, and unverified" in output
-
